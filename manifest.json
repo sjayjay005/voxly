@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Voxly – Free Read Aloud",
   "short_name": "Voxly",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Read any selection or article aloud with natural neural voices, word highlighting and speed control. Free, no account.",
   "permissions": [
     "tts",
@@ -48,5 +48,11 @@
   "minimum_chrome_version": "116",
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "cross_origin_embedder_policy": {
+    "value": "require-corp"
+  },
+  "cross_origin_opener_policy": {
+    "value": "same-origin"
   }
 }

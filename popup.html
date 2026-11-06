@@ -3,52 +3,116 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { width: 300px; margin: 0; padding: 14px; background: #16131f; color: #eee;
-           font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    h1 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
-    h1 img { width: 22px; height: 22px; }
-    .row { display: flex; gap: 8px; margin-bottom: 12px; }
-    button { flex: 1; border: 0; border-radius: 8px; padding: 9px; background: #6d4aff; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
-    button.sec { background: #2a2440; font-weight: 500; }
-    button:hover { filter: brightness(1.12); }
-    label { display: block; margin: 10px 0 4px; color: #bbb; font-size: 12px; }
-    label span { float: right; color: #fff; font-variant-numeric: tabular-nums; }
-    select, input[type=range] { width: 100%; }
-    select { background: #2a2440; color: #eee; border: 1px solid #3a3258; border-radius: 6px; padding: 6px; font: inherit; }
-    input[type=range] { accent-color: #8b6cff; }
-    .kbox { margin-top: 8px; padding: 8px; border-radius: 8px; background: #221d31; color: #bbb; font-size: 12px; }
-    .kbox button { width: 100%; margin-top: 8px; }
-    .off { opacity: .4; pointer-events: none; }
-    .hint { margin-top: 12px; color: #888; font-size: 11px; }
-    kbd { background: #2a2440; border-radius: 4px; padding: 1px 4px; font-size: 11px; }
+    :root { --bg:#14111e; --card:#1d1830; --line:rgba(255,255,255,.07); --text:#ece9f6; --muted:#9d97b5; --accent:#6d4aff; --accent2:#b7a4ff; }
+    * { box-sizing: border-box; }
+    body { width: 320px; margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+           font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           animation: in .3s cubic-bezier(.2,.9,.3,1) both; }
+    @keyframes in { from { opacity: 0; transform: translateY(6px); } }
+    .top { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .top img { width: 28px; height: 28px; border-radius: 8px; box-shadow: 0 4px 14px -4px rgba(109,74,255,.8); }
+    .top h1 { font-size: 16px; margin: 0; letter-spacing: -.01em; flex: 1; }
+    .top .tag { font-size: 11px; color: var(--muted); }
+
+    .now { display: none; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 12px; border-radius: 12px;
+           background: linear-gradient(135deg, rgba(109,74,255,.25), rgba(109,74,255,.08)); border: 1px solid rgba(139,108,255,.3);
+           animation: in .3s both; }
+    .now.on { display: flex; }
+    .now .eq { display: flex; align-items: flex-end; gap: 2px; width: 16px; height: 14px; }
+    .now .eq i { flex: 1; height: 100%; background: var(--accent2); border-radius: 1px; transform-origin: bottom; animation: eq 1s ease-in-out infinite; }
+    .now .eq i:nth-child(2) { animation-delay: -.4s; } .now .eq i:nth-child(3) { animation-delay: -.7s; }
+    .now.paused .eq i { animation-play-state: paused; transform: scaleY(.3); }
+    @keyframes eq { 0%,100% { transform: scaleY(.3); } 40% { transform: scaleY(1); } 70% { transform: scaleY(.55); } }
+    .now span { flex: 1; font-weight: 600; }
+    .now button { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: rgba(255,255,255,.1); display: grid; place-items: center; }
+    .now svg { width: 16px; height: 16px; fill: #fff; }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    button { border: 0; border-radius: 10px; padding: 10px; background: var(--card); color: var(--text); font: inherit; font-weight: 600;
+             cursor: pointer; transition: transform .12s, background .15s, box-shadow .15s, opacity .2s; }
+    button:hover { background: #262040; } button:active { transform: scale(.96); }
+    button.primary { background: linear-gradient(135deg, #8064ff, #6d4aff); box-shadow: 0 6px 18px -6px rgba(109,74,255,.9); }
+    button.primary:hover { box-shadow: 0 8px 22px -6px rgba(109,74,255,1); transform: translateY(-1px); }
+    button:disabled { opacity: .5; cursor: default; }
+
+    .section { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 14px 0 7px; }
+    .seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; background: var(--card); border-radius: 11px; padding: 3px; }
+    .seg .pill { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 8px;
+                 background: linear-gradient(135deg, #8064ff, #6d4aff); transition: transform .3s cubic-bezier(.3,1.2,.4,1); }
+    .seg[data-v="kokoro"] .pill { transform: translateX(100%); }
+    .seg button { position: relative; background: none; padding: 8px 4px; font-size: 12.5px; color: var(--muted); z-index: 1; }
+    .seg button.on { color: #fff; } .seg button:hover { background: none; }
+    .seg small { display: block; font-weight: 500; font-size: 10.5px; opacity: .8; }
+
+    .kbox { margin-top: 8px; padding: 10px 12px; border-radius: 11px; background: var(--card); color: var(--muted); font-size: 12px;
+            overflow: hidden; animation: in .25s both; }
+    .kbox[hidden] { display: none; }
+    .kbar { height: 5px; border-radius: 4px; background: rgba(255,255,255,.08); margin-top: 8px; overflow: hidden; display: none; }
+    .kbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .3s; }
+    .kbar.indet i { width: 35%; animation: indet 1.2s ease-in-out infinite; }
+    @keyframes indet { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+    .kbox button { width: 100%; margin-top: 9px; }
+    .kbox .ok { color: #9be8b4; font-weight: 600; }
+
+    select { width: 100%; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px;
+             font: inherit; outline: none; transition: border-color .15s; }
+    select:focus { border-color: var(--accent); }
+
+    .row { display: flex; justify-content: space-between; align-items: baseline; margin: 12px 0 4px; color: var(--muted); font-size: 12px; }
+    .row b { color: var(--text); font-variant-numeric: tabular-nums; }
+    input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; margin: 0; }
+    input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent) var(--p, 50%), rgba(255,255,255,.09) var(--p, 50%)); }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+      margin-top: -5.5px; box-shadow: 0 0 0 4px rgba(139,108,255,.25); transition: transform .15s; }
+    input[type=range]:active::-webkit-slider-thumb { transform: scale(1.25); }
+    .dim { opacity: .35; pointer-events: none; transition: opacity .2s; }
+    .test { width: 100%; margin-top: 14px; }
+    .test.speaking { background: #262040; box-shadow: inset 0 0 0 1px rgba(139,108,255,.5); }
+    .hint { margin-top: 12px; color: #7a7493; font-size: 11px; text-align: center; }
+    kbd { background: var(--card); border-radius: 4px; padding: 1px 5px; font: 10.5px ui-monospace, monospace; color: var(--muted); }
   </style>
 </head>
 <body>
-  <h1><img src="icons/icon48.png" alt="">Voxly</h1>
-  <div class="row">
-    <button id="readSel">Read selection</button>
-    <button id="readPage" class="sec">Read page</button>
+  <div class="top"><img src="icons/icon48.png" alt=""><h1>Voxly</h1><span class="tag">Free read aloud</span></div>
+
+  <div class="now" id="now">
+    <div class="eq"><i></i><i></i><i></i></div>
+    <span id="nowText">Reading…</span>
+    <button id="nowToggle" title="Pause / resume"><svg viewBox="0 0 24 24"><path id="nowIcon" d="M6.5 5h4v14h-4zM13.5 5h4v14h-4z"/></svg></button>
+    <button id="nowStop" title="Stop"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
   </div>
-  <label for="engine">Engine</label>
-  <select id="engine">
-    <option value="chrome">Standard voices (built into Chrome)</option>
-    <option value="kokoro">Neural voices (Kokoro, on-device)</option>
-  </select>
+
+  <div class="actions">
+    <button id="readSel" class="primary">Read selection</button>
+    <button id="readPage">Read page</button>
+  </div>
+
+  <div class="section">Voice engine</div>
+  <div class="seg" id="seg" data-v="chrome">
+    <div class="pill"></div>
+    <button data-v="chrome" class="on">Standard<small>Instant · built in</small></button>
+    <button data-v="kokoro">Neural<small>Natural · on-device</small></button>
+  </div>
   <div id="kokoroBox" class="kbox" hidden>
     <div id="kstatus">Natural-sounding voices that run on your computer. One-time download of about 90–330 MB.</div>
-    <button id="kdownload" class="sec">Download neural voices</button>
+    <div class="kbar" id="kbar"><i></i></div>
+    <button id="kdownload">Download neural voices</button>
   </div>
-  <label for="voice">Voice</label>
+
+  <div class="section">Voice</div>
   <select id="voice"><option value="">System default</option></select>
   <select id="kvoice" hidden></select>
-  <label for="rate">Speed <span id="rateVal"></span></label>
-  <input id="rate" type="range" min="0.5" max="3" step="0.1">
+
+  <div class="row"><span>Speed</span><b id="rateVal"></b></div>
+  <input id="rate" type="range" min="0.5" max="3" step="0.05">
   <div id="pitchRow">
-  <label for="pitch">Pitch <span id="pitchVal"></span></label>
-  <input id="pitch" type="range" min="0.5" max="2" step="0.1">
+    <div class="row"><span>Pitch</span><b id="pitchVal"></b></div>
+    <input id="pitch" type="range" min="0.5" max="2" step="0.1">
   </div>
-  <div class="row" style="margin-top:12px"><button id="test" class="sec">Test voice</button></div>
-  <div class="hint"><kbd>Alt+Shift+R</kbd> read · <kbd>Alt+Shift+P</kbd> pause · or right-click any text</div>
+
+  <button id="test" class="test">▶ Test voice</button>
+  <div class="hint"><kbd>Alt+Shift+R</kbd> read · <kbd>Alt+Shift+P</kbd> pause · or right-click text</div>
   <script src="popup.js"></script>
 </body>
 </html>
