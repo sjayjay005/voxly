@@ -89,6 +89,30 @@ export function handoffPoint(from, blockStarts = [], window = 3) {
 }
 
 /**
+ * Split a sentence at clause boundaries into pieces of at most `max` characters.
+ *
+ * A 240-character sentence is a single inference, so on a machine at half realtime it alone is
+ * a ~30s wait before any sound. Generating the opening sentences clause by clause gets audio
+ * out several times sooner; the pieces are concatenated before caching, so nothing downstream
+ * knows the difference. Mirrors the cut points used by splitSentences in src/reader/extract.js.
+ */
+export function clauseChunks(text, max = 90) {
+  if (text.length <= max) return [text];
+  const out = [];
+  let rest = text;
+  while (rest.length > max) {
+    const win = rest.slice(0, max);
+    let cut = Math.max(win.lastIndexOf('; '), win.lastIndexOf(': '), win.lastIndexOf(' — '), win.lastIndexOf(', '));
+    if (cut < max * 0.4) cut = win.lastIndexOf(' ');
+    if (cut <= 0) break; // one unbroken run of characters: leave it alone
+    out.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
+/**
  * Pick the thread count to load the model with. Candidates are tried one per session and the
  * measured realtime factor remembered, so a machine settles on its best setting without ever
  * loading the model twice in one sitting.

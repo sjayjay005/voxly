@@ -27,6 +27,14 @@
       },
       seek(i) { if (i >= 0 && i < doc.sentences.length) send('play', { index: i }); },
       settings(patch) { send('settings', { patch }); },
+      // What a hint's button does, by id. Keeping this here means a new hint needs no new wiring
+      // in the view.
+      hint(id) {
+        if (id === 'handoff') send('settings', { patch: { handoff: true } });
+        else if (id === 'nohandoff') send('settings', { patch: { handoff: false } });
+        else if (id === 'natural-off') send('settings', { patch: { natural: false } });
+        // 'dismiss' and anything unrecognised: closing the hint was the whole action.
+      },
       close
     });
     s.view.setState('buffering', 'Getting ready');
@@ -71,8 +79,9 @@
         clearTimeout(s.helloTimer);
         s.reconnecting = false;
         view.setSettings(m.settings, { system: m.systemVoices, neural: m.neuralVoices });
-        if (s.autoplay === false) { s.send('load', { sentences: s.doc.sentences, index: s.resumeAt }); view.setState('paused'); }
-        else s.send('play', { sentences: s.doc.sentences, index: s.resumeAt });
+        const article = { sentences: s.doc.sentences, blockStarts: s.doc.blockStarts, index: s.resumeAt };
+        if (s.autoplay === false) { s.send('load', article); view.setState('paused'); }
+        else s.send('play', article);
         break;
       case 'settings': view.setSettings(m.settings); break;
       case 'state':
@@ -88,7 +97,7 @@
         if (m.words) startClock(s, m); // natural voice: animate words locally from the timeline
         break;
       case 'hint':
-        view.setHint(m.text, m.action);
+        view.setHint(m.text, m.action, m.actionId);
         break;
       case 'word': // standard voices report real word boundaries
         if (m.index === view.active) view.setWord(m.index, m.charIndex, m.length);

@@ -8,4 +8,7 @@ export const NEURAL_VOICES = [
   ['bm_george', 'George (UK)'], ['bm_fable', 'Fable (UK)'], ['bm_lewis', 'Lewis (UK)'], ['bm_daniel', 'Daniel (UK)']
 ].map(([id, label]) => ({ id, label }));
 
-export const DEFAULT_SETTINGS = { natural: false, systemVoice: '', neuralVoice: 'af_heart', rate: 1 };
+// `handoff`: start in the system voice and change to the natural one when it is ready, instead
+// of waiting for it. On by default — on a slow machine it is the difference between speaking at
+// once and waiting the better part of a minute.
+export const DEFAULT_SETTINGS = { natural: false, handoff: true, systemVoice: '', neuralVoice: 'af_heart', rate: 1 };

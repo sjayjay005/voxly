@@ -243,8 +243,11 @@
     el.scroller.addEventListener('touchmove', takeOver, { passive: true });
     el.back.addEventListener('click', () => { follow = true; el.back.classList.remove('on'); scrollToActive(true); });
 
-    const hint = { box: $('.hint'), text: $('.hint-text'), act: $('.hint-act') };
-    hint.act.addEventListener('click', () => { hint.box.classList.remove('on'); act.settings({ natural: false }); });
+    // The hint's button does whatever the hint that raised it asked for, named by an id. It used
+    // to always turn the natural voice off, whatever its label said, which meant there could only
+    // ever be one hint.
+    const hint = { box: $('.hint'), text: $('.hint-text'), act: $('.hint-act'), actionId: null };
+    hint.act.addEventListener('click', () => { hint.box.classList.remove('on'); act.hint(hint.actionId); });
     $('.hint .x').addEventListener('click', () => hint.box.classList.remove('on'));
 
     // ---- events ----
@@ -368,9 +371,10 @@
         el.marker.classList.add('on');
       },
       clearWord() { el.marker.classList.remove('on'); },
-      setHint(text, action) {
+      setHint(text, action, actionId = null) {
         hint.text.textContent = text;
         hint.act.textContent = action || 'OK';
+        hint.actionId = actionId;
         hint.box.classList.add('on');
         el.back.classList.remove('on');
       },

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   estimate, contiguousSeconds, restAvailable, prebufferNeeded, waitSeconds, fmtWait,
-  wordTimeline, handoffPoint, pickThreads, idleCloseMs,
+  wordTimeline, handoffPoint, pickThreads, idleCloseMs, clauseChunks,
   MAX_PREBUFFER, MAX_WAIT, CHARS_PER_SEC
 } from '../src/offscreen/pacing.js';
 
@@ -134,6 +134,24 @@ test('handoffPoint prefers a paragraph start just ahead', () => {
   assert.equal(handoffPoint(5, [0, 20]), 5, 'too far away, hand over where we are');
   assert.equal(handoffPoint(5, [0, 3]), 5, 'behind us, not a candidate');
   assert.equal(handoffPoint(5, []), 5);
+});
+
+test('clauseChunks leaves a short sentence alone', () => {
+  assert.deepEqual(clauseChunks('Short enough.', 90), ['Short enough.']);
+});
+
+test('clauseChunks cuts at clause punctuation and keeps every character', () => {
+  const text = 'The model loads once; after that it is cached, so replays are instant: '
+    + 'that is the whole trick, and it works well on slow machines too.';
+  const parts = clauseChunks(text, 60);
+  assert.ok(parts.length > 1, 'should have split');
+  for (const p of parts) assert.ok(p.length <= 60 || !p.includes(' '), `piece too long: ${p.length}`);
+  assert.equal(parts.join(' ').replace(/\s+/g, ' '), text.replace(/\s+/g, ' '));
+});
+
+test('clauseChunks gives up rather than slicing mid-word', () => {
+  const unbroken = 'x'.repeat(300);
+  assert.deepEqual(clauseChunks(unbroken, 90), [unbroken]);
 });
 
 test('pickThreads explores each candidate once, then keeps the fastest', () => {
