@@ -1,33 +1,48 @@
 # Voxly – Free Read Aloud
 
-A free Chrome extension that reads selected text or whole articles aloud, with word highlighting, speed control and your choice of voice.
+A Chrome extension that does one thing: turns the page you're on into clean, readable text and reads it to you, highlighting each word as it's spoken.
 
-- Right-click text → **Read selection aloud**, or **Read this page aloud**
-- Floating player: pause, skip sentence, speed −/+
-- Shortcuts: `Alt+Shift+R` read, `Alt+Shift+P` pause
-- No account, no tracking
+- Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
+- Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed, **Esc** closes.
+- **Natural voice** switches from your computer's built-in voices to Kokoro, an open neural voice that runs entirely on your machine.
 
-## Install for development
-1. Clone this repo
-2. Go to `chrome://extensions`, enable **Developer mode**
-3. Click **Load unpacked** and select this folder
+[Privacy policy](https://sjayjay005.github.io/voxly/privacy.html)
 
-## Privacy
-See [privacy.html](https://sjayjay005.github.io/voxly/privacy.html).
+## How it's built
 
-## Credits
-Article extraction uses [Mozilla Readability](https://github.com/mozilla/readability) (Apache-2.0, see `Readability-LICENSE.md`).
+```
+src/
+  reader/            content scripts, injected only when you open the reader
+    extract.js       page → { title, blocks, sentences } via Readability; sentences are the unit of everything
+    view.js          the reader UI (shadow DOM): text, one moving highlight marker, control dock
+    reader.js        controller: wires the view to the service worker over a single Port
+  background/        service worker (ES modules)
+    main.js          opens the reader, owns the one reading session, routes events
+    system-engine.js chrome.tts — every sentence queued up front, so no gaps
+    neural-engine.js proxy to the offscreen document; closes it when idle
+    voices.js        natural voice list and default settings
+  offscreen/
+    player.js        buffered natural-voice player (see below)
+    kokoro-worker.js bundled Kokoro + ONNX runtime (built, don't edit)
+lib/Readability.js   vendored from @mozilla/readability (built)
+ort/                 ONNX WebAssembly runtime (built)
+```
 
-## Building
-The extension ships with a few vendored files built from npm packages (`Readability.js`, `kokoro-worker.js`, `ort/`).
+**Natural voice playback** works like a video player. It measures how fast this computer synthesizes speech, buffers enough audio up front that playback won't overtake generation (never more than ~30s), plays sentences back-to-back on one audio timeline, keeps at most 45s generated ahead, and frees each sentence's audio once it has played. If generation ever falls behind it shows *Buffering* rather than stuttering. A minute after you stop, the offscreen document closes so the model's memory is released.
+
+**Performance choices for modest machines:** 8-bit CPU model (~90 MB) instead of the GPU model (~330 MB); half the CPU cores; one message per sentence instead of per word (the reader animates the highlight itself with `requestAnimationFrame`, which pauses in background tabs); no blur or always-running animations; `content-visibility` on paragraphs so long articles stay cheap.
+
+## Development
+
 ```
 npm install
-npm run build     # regenerate the vendored files from package.json versions
-npm run zip       # same, plus dist/voxly-<version>.zip for the Chrome Web Store
+npm run build   # regenerate lib/, ort/ and src/offscreen/kokoro-worker.js from package.json versions
+npm run check   # syntax + manifest checks (also run in CI)
+npm run zip     # build + dist/voxly-<version>.zip for the Chrome Web Store
 ```
+Load the folder unpacked at `chrome://extensions` (Developer mode). The natural voice's console lives under **Inspect views → offscreen.html**; it logs load time and realtime factor per sentence, and `voxlyDebug()` shows buffer state.
 
 ## Dependency security
-- **Dependabot security updates** are enabled in Settings → Advanced Security, and `.github/dependabot.yml` adds weekly grouped version updates.
-- The **Build** workflow runs on every PR, so a Dependabot bump that breaks the bundle fails before you merge.
-- After merging a Dependabot PR, run `npm install && npm run build` (or `npm run zip`) and commit the regenerated files — the extension uses the vendored copies, not `node_modules`.
-- Alerts for `sharp` (pulled in by `@huggingface/transformers`) don't affect the extension: sharp is a Node-only image library and isn't included in the browser bundle. They can be dismissed as "vulnerable code is not actually used".
+Dependabot security updates are enabled; `.github/dependabot.yml` adds weekly grouped version updates and CI builds every PR. After merging one, run `npm install && npm run build` and commit the regenerated files. Alerts for `sharp` don't affect the extension (Node-only, never bundled) and are ignored.
+
+Article extraction uses [Mozilla Readability](https://github.com/mozilla/readability) (Apache-2.0).

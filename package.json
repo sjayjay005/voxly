@@ -1,12 +1,13 @@
 {
   "name": "voxly",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Voxly – free read-aloud Chrome extension. These dependencies are bundled into the extension by `npm run build`.",
+  "description": "Voxly – free read-aloud Chrome extension. Runtime dependencies are vendored into the extension by `npm run build`.",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "zip": "node scripts/build.mjs --zip"
+    "zip": "node scripts/build.mjs --zip",
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
