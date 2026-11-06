@@ -17,3 +17,13 @@ See [privacy.html](https://sjayjay005.github.io/voxly/privacy.html).
 
 ## Credits
 Article extraction uses [Mozilla Readability](https://github.com/mozilla/readability) (Apache-2.0, see `Readability-LICENSE.md`).
+
+## Neural voices (v1.1)
+`kokoro-worker.js` is a bundle of [kokoro-js](https://github.com/hexgrad/kokoro) + transformers.js. To rebuild it:
+```
+npm i kokoro-js esbuild
+npx esbuild build/kokoro-worker.src.js --bundle --format=iife --platform=browser --minify --target=chrome116 \
+  --alias:fs/promises=./build/empty.js --alias:path=./build/empty.js --alias:fs=./build/empty.js \
+  --external:onnxruntime-node --outfile=kokoro-worker.js
+```
+then replace the jsDelivr wasm fallback URL in the bundle with `${self.location.origin}/ort/`, and copy the `ort-wasm-simd-threaded*` files from `@huggingface/transformers/dist` and `onnxruntime-web/dist` into `ort/`.

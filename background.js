@@ -1,6 +1,6 @@
 // Voxly service worker: owns playback state and drives chrome.tts.
 
-const DEFAULTS = { rate: 1, pitch: 1, voiceName: '' };
+const DEFAULTS = { rate: 1, pitch: 1, voiceName: '', engine: 'chrome', kokoroVoice: 'af_heart' };
 const MAX_CHUNK = 220; // Chrome voices can cut out on long utterances, so speak in small pieces.
 
 let state = { chunks: [], index: 0, tabId: null, playing: false, paused: false, token: 0 };
@@ -26,8 +26,11 @@ chrome.commands.onCommand.addListener((command, tab) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'control') control(msg.action);
   else if (msg.type === 'read') readTab(msg.tabId, msg.mode || 'auto');
+  else if (msg.type === 'readText') startFromText(msg.tabId, msg.text, 'Voice test');
   else if (msg.type === 'setRate') setRate(msg.rate, msg.delta);
   else if (msg.type === 'settingsChanged' && state.playing && !state.paused) restartChunk();
+  else if (msg.type === 'kokoro:event') onKokoroEvent(msg);
+  else if (msg.type === 'kokoro:preload') ensureOffscreen().then(() => toOffscreen({ type: 'preload' }));
   else if (msg.type === 'getState') {
     sendResponse({ playing: state.playing, paused: state.paused, index: state.index, total: state.chunks.length });
   }
@@ -90,21 +93,30 @@ function chunkText(text) {
 async function startFromText(tabId, text, title) {
   const chunks = chunkText(text);
   if (!chunks.length) return;
-  chrome.tts.stop();
+  stopEngines();
   state = { chunks, index: 0, tabId, playing: true, paused: false, token: state.token + 1 };
   try { await ensureContent(tabId); } catch {}
-  const { rate } = await getSettings();
-  notify('open', { chunks, title: title || '', rate });
+  const { rate, engine } = await getSettings();
+  notify('open', { chunks, title: title || '', rate, engine });
   speakCurrent();
 }
 
 async function speakCurrent() {
-  const { rate, pitch, voiceName } = await getSettings();
+  const { rate, pitch, voiceName, engine, kokoroVoice } = await getSettings();
   const token = state.token;
   const i = state.index;
   if (i >= state.chunks.length) return finish();
   notify('chunk', { index: i });
   updateBadge();
+  state.engine = engine;
+
+  if (engine === 'kokoro') {
+    await ensureOffscreen();
+    if (token !== state.token) return;
+    toOffscreen({ type: 'speak', token, index: i, text: state.chunks[i], nextText: state.chunks[i + 1] || '',
+                  voice: kokoroVoice, speed: Number(rate) || 1 });
+    return;
+  }
 
   const opts = {
     rate: Number(rate) || 1,
@@ -123,8 +135,41 @@ async function speakCurrent() {
 
 function restartChunk() {
   state.token++;
-  chrome.tts.stop();
+  stopEngines();
   speakCurrent();
+}
+
+function stopEngines() {
+  chrome.tts.stop();
+  toOffscreen({ type: 'stop' });
+}
+
+// ---- Kokoro (neural) engine, hosted in an offscreen document ----
+let creatingOffscreen = null;
+async function ensureOffscreen() {
+  const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+  if (existing.length) return;
+  if (!creatingOffscreen) {
+    creatingOffscreen = chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['WORKERS'], // not AUDIO_PLAYBACK: that reason auto-closes the doc after 30s of silence and would drop the loaded model
+      justification: 'Runs the on-device neural text-to-speech model in a worker and plays its audio.'
+    }).finally(() => { creatingOffscreen = null; });
+  }
+  await creatingOffscreen;
+}
+
+function toOffscreen(msg) {
+  chrome.runtime.sendMessage({ target: 'offscreen', ...msg }).catch(() => {});
+}
+
+function onKokoroEvent(e) {
+  if (e.event === 'progress') return notify('loading', { percent: e.percent });
+  if (e.token !== state.token || e.index !== state.index) return; // stale
+  if (e.event === 'start') notify('loading', { done: true });
+  else if (e.event === 'word') notify('word', { index: e.index, charIndex: e.charIndex, length: e.length });
+  else if (e.event === 'end') { state.index++; speakCurrent(); }
+  else if (e.event === 'error') { notify('error', { message: e.message }); stop(); }
 }
 
 function control(action) {
@@ -132,10 +177,13 @@ function control(action) {
   switch (action) {
     case 'toggle': return state.paused ? control('resume') : control('pause');
     case 'pause':
-      chrome.tts.pause(); state.paused = true; break;
+      if (state.engine === 'kokoro') toOffscreen({ type: 'pause' }); else chrome.tts.pause();
+      state.paused = true; break;
     case 'resume':
+      state.paused = false;
+      if (state.engine === 'kokoro') { toOffscreen({ type: 'resume' }); break; }
       // Some online voices ignore resume, so re-speak the current chunk if nothing is playing.
-      chrome.tts.resume(); state.paused = false;
+      chrome.tts.resume();
       setTimeout(() => chrome.tts.isSpeaking((s) => { if (!s && state.playing && !state.paused) restartChunk(); }), 300);
       break;
     case 'next':
@@ -160,7 +208,7 @@ async function setRate(rate, delta) {
 
 function stop() {
   state.token++;
-  chrome.tts.stop();
+  stopEngines();
   const tabId = state.tabId;
   state = { ...state, playing: false, paused: false, chunks: [], index: 0 };
   if (tabId) chrome.tabs.sendMessage(tabId, { type: 'voxly:close' }).catch(() => {});

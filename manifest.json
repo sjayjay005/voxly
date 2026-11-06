@@ -2,24 +2,51 @@
   "manifest_version": 3,
   "name": "Voxly – Free Read Aloud",
   "short_name": "Voxly",
-  "version": "1.0.0",
-  "description": "Read any selection or article aloud with word highlighting, speed control and your choice of voice. Free, no account.",
-  "permissions": ["tts", "contextMenus", "activeTab", "scripting", "storage"],
-  "background": { "service_worker": "background.js" },
+  "version": "1.1.0",
+  "description": "Read any selection or article aloud with natural neural voices, word highlighting and speed control. Free, no account.",
+  "permissions": [
+    "tts",
+    "contextMenus",
+    "activeTab",
+    "scripting",
+    "storage",
+    "offscreen"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Voxly – Read Aloud",
-    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "commands": {
     "read-aloud": {
-      "suggested_key": { "default": "Alt+Shift+R" },
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
       "description": "Read selection (or the whole page)"
     },
     "toggle-pause": {
-      "suggested_key": { "default": "Alt+Shift+P" },
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
       "description": "Pause / resume"
     }
+  },
+  "minimum_chrome_version": "116",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }

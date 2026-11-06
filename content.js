@@ -38,6 +38,7 @@
     button:hover { background: #3a3258; } button.main { background: #6d4aff; min-width: 44px; } button.main:hover { background: #7f60ff; }
     .spacer { flex: 1; } .rate { font-size: 12px; min-width: 38px; text-align: center; font-variant-numeric: tabular-nums; }
     .err { color: #ff8f8f; padding: 0 14px 10px; font-size: 12px; display: none; }
+    .status { color: #b9a8ff; padding: 0 14px 10px; font-size: 12px; display: none; }
   `;
 
   function build(title) {
@@ -49,6 +50,7 @@
         <div class="head"><div class="logo"></div><div class="title"></div><div class="count"></div></div>
         <div class="bar"><i></i></div>
         <div class="text" aria-live="polite"></div>
+        <div class="status"></div>
         <div class="err"></div>
         <div class="ctl">
           <button data-a="prev" title="Previous sentence">⏮</button>
@@ -63,7 +65,7 @@
       </div>`;
     const $ = (s) => root.querySelector(s);
     ui = { panel: $('.p'), head: $('.head'), title: $('.title'), count: $('.count'), text: $('.text'),
-           bar: $('.bar > i'), toggle: $('[data-a="toggle"]'), rate: $('.rate'), err: $('.err') };
+           bar: $('.bar > i'), toggle: $('[data-a="toggle"]'), rate: $('.rate'), err: $('.err'), status: $('.status') };
     ui.title.textContent = title || 'Voxly';
 
     root.addEventListener('click', (e) => {
@@ -119,12 +121,21 @@
       case 'voxly:open':
         chunks = msg.chunks; current = 0; build(msg.title);
         ui.err.style.display = 'none';
+        if (msg.engine === 'kokoro') { ui.status.textContent = 'Preparing neural voice…'; ui.status.style.display = 'block'; }
         ui.rate.textContent = Number(msg.rate || 1).toFixed(1) + '×';
         setPaused(false); render(); break;
       case 'voxly:chunk': current = msg.index; setPaused(false); render(); break;
       case 'voxly:word': if (msg.index === current) render(msg.charIndex, msg.length); break;
       case 'voxly:state': setPaused(msg.paused); break;
       case 'voxly:rate': if (ui.rate) ui.rate.textContent = Number(msg.rate).toFixed(1) + '×'; break;
+      case 'voxly:loading':
+        if (!ui.status) break;
+        if (msg.done) { ui.status.style.display = 'none'; break; }
+        ui.status.textContent = msg.percent < 100
+          ? `Downloading neural voice (first time only)… ${msg.percent}%`
+          : 'Warming up neural voice…';
+        ui.status.style.display = 'block';
+        break;
       case 'voxly:error': if (ui.err) { ui.err.textContent = msg.message; ui.err.style.display = 'block'; } break;
       case 'voxly:close': if (host) { host.remove(); host = null; ui = {}; } break;
     }

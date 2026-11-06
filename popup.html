@@ -16,6 +16,9 @@
     select, input[type=range] { width: 100%; }
     select { background: #2a2440; color: #eee; border: 1px solid #3a3258; border-radius: 6px; padding: 6px; font: inherit; }
     input[type=range] { accent-color: #8b6cff; }
+    .kbox { margin-top: 8px; padding: 8px; border-radius: 8px; background: #221d31; color: #bbb; font-size: 12px; }
+    .kbox button { width: 100%; margin-top: 8px; }
+    .off { opacity: .4; pointer-events: none; }
     .hint { margin-top: 12px; color: #888; font-size: 11px; }
     kbd { background: #2a2440; border-radius: 4px; padding: 1px 4px; font-size: 11px; }
   </style>
@@ -26,12 +29,24 @@
     <button id="readSel">Read selection</button>
     <button id="readPage" class="sec">Read page</button>
   </div>
+  <label for="engine">Engine</label>
+  <select id="engine">
+    <option value="chrome">Standard voices (built into Chrome)</option>
+    <option value="kokoro">Neural voices (Kokoro, on-device)</option>
+  </select>
+  <div id="kokoroBox" class="kbox" hidden>
+    <div id="kstatus">Natural-sounding voices that run on your computer. One-time download of about 90–330 MB.</div>
+    <button id="kdownload" class="sec">Download neural voices</button>
+  </div>
   <label for="voice">Voice</label>
   <select id="voice"><option value="">System default</option></select>
+  <select id="kvoice" hidden></select>
   <label for="rate">Speed <span id="rateVal"></span></label>
   <input id="rate" type="range" min="0.5" max="3" step="0.1">
+  <div id="pitchRow">
   <label for="pitch">Pitch <span id="pitchVal"></span></label>
   <input id="pitch" type="range" min="0.5" max="2" step="0.1">
+  </div>
   <div class="row" style="margin-top:12px"><button id="test" class="sec">Test voice</button></div>
   <div class="hint"><kbd>Alt+Shift+R</kbd> read · <kbd>Alt+Shift+P</kbd> pause · or right-click any text</div>
   <script src="popup.js"></script>
