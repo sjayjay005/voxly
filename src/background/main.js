@@ -53,13 +53,17 @@ chrome.runtime.onConnect.addListener((port) => {
 
 async function handle(msg) {
   switch (msg.type) {
+    case 'ping': break; // heartbeat from the reader; receiving it keeps this worker alive
     case 'hello': {
       const [settings, voices] = await Promise.all([getSettings(), chrome.tts.getVoices()]);
-      const systemVoices = voices.filter((v) => v.voiceName)
-        .map((v) => ({ id: v.voiceName, label: v.voiceName + (v.remote ? ' (online)' : ''), lang: v.lang || '' }));
-      emit('init', { settings, systemVoices, neuralVoices: NEURAL_VOICES });
+      emit('init', { settings, systemVoices: rankVoices(voices, msg.lang), neuralVoices: NEURAL_VOICES });
       break;
     }
+    case 'load': // reconnected while paused: remember the article without starting playback
+      session.sentences = msg.sentences;
+      session.index = msg.index;
+      session.state = 'paused';
+      break;
     case 'play':
       if (msg.sentences) session.sentences = msg.sentences;
       await play(msg.index ?? session.index);
@@ -76,6 +80,17 @@ async function handle(msg) {
     }
     case 'close': endSession(); break;
   }
+}
+
+// Best voices first: the page's language, then Apple's Premium/Enhanced and other natural-sounding voices.
+function rankVoices(voices, lang = navigator.language) {
+  const base = (lang || 'en').slice(0, 2).toLowerCase();
+  const quality = (n) => (/premium/i.test(n) ? 3 : /enhanced|natural|neural/i.test(n) ? 2 : /^google/i.test(n) ? 1 : 0);
+  return voices.filter((v) => v.voiceName)
+    .map((v) => ({ id: v.voiceName, label: v.voiceName + (v.remote ? ' (online)' : ''), lang: v.lang || '',
+                   score: ((v.lang || '').toLowerCase().startsWith(base) ? 10 : 0) + quality(v.voiceName) }))
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+    .map(({ score, ...v }) => v);
 }
 
 async function play(index) {

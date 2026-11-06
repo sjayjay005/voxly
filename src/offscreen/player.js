@@ -1,35 +1,40 @@
-// Natural-voice player. Works like a video player:
-//   1. Generate sentences in a worker, measuring how fast this machine synthesizes (realtime factor, RTF).
-//   2. Before starting, buffer enough audio that playback won't outrun generation (capped at ~30s of audio).
-//   3. Play buffered sentences back-to-back on one AudioContext timeline (no gaps).
-//   4. Keep at most AHEAD seconds generated ahead; free each sentence's audio as soon as it has played.
-//   5. If generation ever falls behind, pause cleanly and show "Buffering" rather than stuttering.
-//   6. After a minute with nothing to do, ask the service worker to close this document (frees the model).
+// Natural-voice player. Two independent loops, like a video player with a download manager:
+//
+//   generator: synthesizes every sentence of the article in order (in a worker) and saves it to the
+//              local audio cache. Sentences already cached are skipped, so replays and resumes are instant.
+//              It measures this machine's speed (realtime factor, RTF = audio seconds per wall second).
+//   player:    keeps only ~30s of decoded audio in memory, scheduled back-to-back on one AudioContext
+//              timeline, and frees each clip as soon as it has played.
+//
+// Before starting, it buffers enough audio that playback won't overtake generation (capped), and if it
+// ever runs dry it shows "Buffering" instead of stuttering. A minute after you stop, it asks the service
+// worker to close this document, which releases the model's memory.
+import { AudioCache } from './audio-cache.js';
 
-const AHEAD = 45;              // seconds of audio to keep generated ahead of the playhead
-const MAX_PREBUFFER = 30;      // never make you wait for more than ~30s of audio before starting
-const REBUFFER = 8;            // after running dry, wait for this much audio before continuing
-const CHARS_PER_SEC = 14.5;    // rough Kokoro speaking rate at 1×, used for estimates only
-const SENTENCE_GAP = 0.06;     // breath between sentences
+const MEM_AHEAD = 30;          // seconds of audio decoded/scheduled ahead of the playhead
+const MAX_PREBUFFER = 60;      // longest initial buffer, in seconds of audio
+const MAX_WAIT = 45;           // ...and never ask you to wait more than ~45s of wall-clock time for it
+const SLOW_RTF = 0.5;          // below this, suggest the standard voice
+const REBUFFER = 10;           // after running dry, wait for this much audio before continuing
+const CHARS_PER_SEC = 14.5;    // rough Kokoro speaking rate at 1×, for estimates only
+const SENTENCE_GAP = 0.06;
 const IDLE_CLOSE_MS = 60_000;
+
+const cache = new AudioCache();
+// This machine's synthesis speed, remembered across sessions so a cached article can start immediately.
+const savedRtf = () => { const v = Number(localStorage.getItem('voxly.rtf')); return v > 0 ? v : null; };
+// Ask Chrome to keep this extension's storage (model weights + audio cache) under storage pressure.
+navigator.storage?.persist?.().catch(() => {});
 
 // ---- worker RPC ----
 const worker = new Worker('kokoro-worker.js');
 const pending = new Map();
 let rid = 0;
-// The worker picks between its CPU and GPU engines by measuring them (see kokoro-worker.src.js). We keep its
-// verdict so the next session starts on the right engine without measuring again.
-let enginePref = chrome.storage.local.get('neuralEngine').then((r) => r.neuralEngine ?? null).catch(() => null);
 worker.onmessage = ({ data }) => {
-  if (data.type === 'engine') {
-    enginePref = Promise.resolve({ engine: data.engine, adapter: data.adapter, rtf: data.rtf });
-    chrome.storage.local.set({ neuralEngine: { engine: data.engine, adapter: data.adapter, rtf: data.rtf } }).catch(() => {});
+  if (data.type === 'progress') {
+    if (current) emit('state', { state: 'buffering', detail: data.percent < 100 ? 'Downloading natural voice (one time only)' : 'Loading natural voice', progress: data.percent / 100 });
     return;
   }
-  // A download may also happen mid-article (the worker trying its other engine); only report it while we're
-  // waiting anyway, never over audio that is playing fine.
-  if (data.type === 'progress') return current && !current.started && emit('state', { state: 'buffering', detail: data.percent < 100 ? `Downloading natural voice (first time only)` : 'Loading natural voice', progress: data.percent / 100 });
-  if (data.type === 'status') return current && emit('state', { state: 'buffering', detail: data.text });
   const p = pending.get(data.id);
   if (!p) return;
   pending.delete(data.id);
@@ -40,10 +45,10 @@ function rpc(msg) {
   return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); worker.postMessage({ ...msg, id, baseUrl: chrome.runtime.getURL('') }); });
 }
 // Exposed so tests can substitute a fake synthesizer; production always uses the worker.
-globalThis.voxlySynth = { generate: async (text, voice, speed) => rpc({ type: 'generate', text, voice, speed, pref: await enginePref }) };
+globalThis.voxlySynth = { generate: (text, voice, speed) => rpc({ type: 'generate', text, voice, speed }) };
 
 // ---- messaging ----
-let current = null; // the active session
+let current = null;
 const emit = (ev, data = {}) => chrome.runtime.sendMessage({ source: 'neural', ev, sid: current?.sid, ...data }).catch(() => {});
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -55,127 +60,177 @@ chrome.runtime.onMessage.addListener((msg) => {
   else if (msg.op === 'stop') stop();
 });
 
-// ---- audio ----
 let ctx = null;
 let idleTimer = null;
 
-function start({ sid, sentences, from, voice, speed }) {
+async function start({ sid, sentences, from, voice, speed }) {
   stop();
   clearTimeout(idleTimer);
-  ctx ||= new AudioContext({ latencyHint: 'playback', sampleRate: 24000 }); // Kokoro's native rate: no resampling
+  ctx ||= new AudioContext({ latencyHint: 'playback', sampleRate: 24000 }); // Kokoro's native rate
   ctx.resume();
-  current = {
-    sid, sentences, voice, speed,
-    next: from,            // next sentence to generate
-    ready: [],             // generated, not yet scheduled: {index, buffer, words}
-    scheduled: [],         // scheduled on the timeline: {index, src, start, end, words, announced}
-    timelineEnd: 0,
-    rtf: null,             // audio seconds produced per wall-clock second (EMA)
-    engine: null,          // 'cpu' | 'gpu': which worker engine produced the last sentence
-    started: false,        // false while (re)buffering
-    need: 0,               // seconds of audio required before (re)starting
-    paused: false,
-    generating: false,
-    ticker: null
-  };
-  emit('state', { state: 'buffering', detail: 'Preparing natural voice', progress: 0 });
-  pump(current);
+  const s = (current = {
+    sid, sentences, voice, speed, from,
+    keys: [], dur: new Map(), avail: new Set(), fresh: new Map(),
+    genNext: from, playNext: from, scheduled: [], timelineEnd: 0,
+    rtf: savedRtf(), started: false, need: 0, paused: false, filling: false, ticker: null
+  });
+  emit('state', { state: 'buffering', detail: 'Preparing natural voice', progress: null });
+
+  try {
+    s.keys = await Promise.all(sentences.map((t) => AudioCache.key(voice, speed, t)));
+    const known = await cache.lookup(s.keys.slice(from));
+    s.keys.forEach((k, i) => { if (i >= from && known.has(k)) { s.avail.add(i); s.dur.set(i, known.get(k)); } });
+  } catch (e) { console.warn('[voxly] audio cache unavailable', e); }
+  if (current !== s) return;
+  flush(s);
+  generate(s);
 }
 
-const remainingChars = (s, from) => s.sentences.slice(from).reduce((n, t) => n + t.length, 0);
-const readySeconds = (s) => s.ready.reduce((n, r) => n + r.buffer.duration, 0);
-const aheadSeconds = (s) => readySeconds(s) + s.scheduled.reduce((n, it) => n + Math.max(0, it.end - ctx.currentTime), 0);
-const allGenerated = (s) => s.next >= s.sentences.length;
+const est = (s, i) => s.dur.get(i) ?? s.sentences[i].length / (CHARS_PER_SEC * s.speed);
+function contiguousSeconds(s) {
+  let t = 0;
+  for (let i = s.playNext; i < s.sentences.length && s.avail.has(i); i++) t += s.dur.get(i);
+  return t;
+}
+const restAvailable = (s) => { for (let i = s.playNext; i < s.sentences.length; i++) if (!s.avail.has(i)) return false; return true; };
 
 // How much audio to buffer before playing so that playback never overtakes generation.
 function prebufferNeeded(s, cap) {
+  if (restAvailable(s)) return 0;
   if (s.rtf == null) return Infinity;
-  if (s.rtf >= 1.15) return 0; // faster than realtime: start as soon as the first sentence is ready
-  const remainingAudio = remainingChars(s, s.next) / (CHARS_PER_SEC * s.speed) + readySeconds(s);
-  return Math.min(cap, remainingAudio * (1 - s.rtf) + 2);
+  let missing = 0, nextMissing = 0;
+  for (let i = s.playNext; i < s.sentences.length; i++) {
+    if (s.avail.has(i)) continue;
+    if (!nextMissing) nextMissing = est(s, i);
+    missing += est(s, i);
+  }
+  const lead = nextMissing / s.rtf + 0.5;             // cover the time it takes to make the next sentence
+  if (s.rtf >= 1.15) return Math.min(cap, lead);
+  const seamless = missing * (1 - s.rtf) + 2;       // enough to never run dry
+  const patience = Math.max(s.rtf * MAX_WAIT, est(s, s.playNext)); // what we can make in ~MAX_WAIT
+  return Math.min(cap, Math.max(seamless, lead), Math.max(patience, lead));
 }
 
-async function pump(s) {
+// ---- generator: whole article, into the cache ----
+async function generate(s) {
   if (s.generating) return;
   s.generating = true;
   try {
-    while (current === s && !allGenerated(s) && aheadSeconds(s) < AHEAD) {
-      const index = s.next++;
-      const text = s.sentences[index];
-      const t0 = performance.now();
-      const res = await globalThis.voxlySynth.generate(text, s.voice, s.speed);
+    for (; s.genNext < s.sentences.length; s.genNext++) {
       if (current !== s) return;
-      const wall = (performance.now() - t0) / 1000;
-      const buffer = ctx.createBuffer(1, res.audio.length, res.sampleRate);
-      buffer.copyToChannel(res.audio, 0);
-      // Prefer the worker's own measurement: it excludes model loading and smooths out warm-up, so the first
-      // sentence no longer makes a fast machine wait for a 30s prebuffer. Wall-clock is the fallback (tests).
-      const rtf = res.rtf ?? buffer.duration / Math.max(wall, 0.001);
-      const engine = res.engine ?? null;
-      s.rtf = s.rtf == null || engine !== s.engine ? rtf : s.rtf * 0.7 + rtf * 0.3; // a new engine: start over
-      s.engine = engine;
-      s.ready.push({ index, buffer, words: wordTimeline(text) });
+      const i = s.genNext;
+      if (s.avail.has(i)) continue;
+      const t0 = performance.now();
+      const res = await globalThis.voxlySynth.generate(s.sentences[i], s.voice, s.speed);
+      if (current !== s) return;
+      const dur = res.audio.length / res.sampleRate;
+      const rtf = dur / Math.max((performance.now() - t0) / 1000, 0.001);
+      s.rtf = s.rtf == null ? rtf : s.rtf * 0.7 + rtf * 0.3;
+      try { localStorage.setItem('voxly.rtf', String(s.rtf)); } catch {}
+      // Keep the raw audio in memory only if it's about to play; everything else lives in the cache.
+      if (i < s.playNext + 6) s.fresh.set(i, res);
+      try { await cache.put(s.keys[i], res.audio, res.sampleRate); } catch (e) { s.fresh.set(i, res); }
+      s.dur.set(i, dur);
+      s.avail.add(i);
       flush(s);
     }
   } catch (e) {
-    if (current === s) { emit('state', { state: 'error', detail: 'The natural voice failed to load: ' + e.message }); stop(); }
+    if (current === s) { emit('state', { state: 'error', detail: 'The natural voice failed: ' + e.message }); stop(); }
   } finally {
     s.generating = false;
   }
-  if (current === s) flush(s);
 }
 
-// Move ready audio onto the timeline once enough is buffered.
+// ---- player ----
 function flush(s) {
+  if (current !== s) return;
   if (!s.started) {
     const need = s.need || prebufferNeeded(s, MAX_PREBUFFER);
-    const have = readySeconds(s);
-    if (have < need && !allGenerated(s)) {
-      const progress = need === Infinity ? 0 : have / need;
-      const wait = need === Infinity ? '' : ` — about ${Math.ceil((need - have) / Math.max(s.rtf, 0.05))}s`;
-      emit('state', { state: 'buffering', detail: `Preparing natural voice${wait}`, progress });
+    const have = contiguousSeconds(s);
+    if (have < need) {
+      const known = need !== Infinity;
+      const wait = known && s.rtf ? ` — about ${fmtWait(waitSeconds(s, need - have))}` : '';
+      emit('state', { state: 'buffering', detail: `Preparing natural voice${wait}`, progress: known ? have / need : null });
+      if (s.rtf != null && s.rtf < SLOW_RTF && !s.hinted) {
+        s.hinted = true;
+        emit('hint', { text: 'The natural voice is slow on this computer, so it may pause to catch up.', action: 'Use standard voice' });
+      }
       return;
     }
+    if (!s.avail.has(s.playNext)) return;
     s.started = true;
     s.need = 0;
     s.timelineEnd = 0;
     if (!s.paused) { emit('state', { state: 'playing' }); startTicker(s); }
   }
-  while (s.ready.length) schedule(s, s.ready.shift());
+  fill(s);
 }
 
-function schedule(s, item) {
+// Time until enough whole sentences are generated to cover `short` more seconds of audio.
+function waitSeconds(s, short) {
+  let audio = 0, wall = 0;
+  for (let i = s.genNext; i < s.sentences.length && audio < short; i++) {
+    if (s.avail.has(i)) continue;
+    audio += est(s, i);
+    wall += est(s, i) / s.rtf;
+  }
+  return wall;
+}
+const fmtWait = (sec) => (sec < 60 ? `${Math.max(1, Math.round(sec))}s` : `${Math.round(sec / 60)} min`);
+const aheadSeconds = (s) => s.scheduled.reduce((n, it) => n + Math.max(0, it.end - ctx.currentTime), 0);
+
+async function fill(s) {
+  if (s.filling) return;
+  s.filling = true;
+  try {
+    while (current === s && s.started && s.avail.has(s.playNext) && aheadSeconds(s) < MEM_AHEAD) {
+      const i = s.playNext;
+      const clip = s.fresh.get(i) || (await cache.get(s.keys[i]));
+      s.fresh.delete(i);
+      if (current !== s) return;
+      if (!clip) { s.avail.delete(i); s.genNext = Math.min(s.genNext, i); generate(s); break; } // evicted: regenerate
+      s.playNext++;
+      schedule(s, i, clip);
+    }
+  } finally { s.filling = false; }
+}
+
+function schedule(s, index, clip) {
+  const buffer = ctx.createBuffer(1, clip.audio.length, clip.sampleRate);
+  buffer.copyToChannel(clip.audio, 0);
   const src = ctx.createBufferSource();
-  src.buffer = item.buffer;
+  src.buffer = buffer;
   src.connect(ctx.destination);
   const start = Math.max(ctx.currentTime + 0.05, s.timelineEnd);
   src.start(start);
-  const end = start + item.buffer.duration;
-  const endsSentence = /[.!?…]["'”’)\]]?$/.test(s.sentences[item.index]);
-  s.timelineEnd = end + (endsSentence ? SENTENCE_GAP : 0);
-  const entry = { index: item.index, src, start, end, words: item.words, duration: item.buffer.duration, announced: false };
+  const end = start + buffer.duration;
+  s.timelineEnd = end + (/[.!?…]["'”’)\]]?$/.test(s.sentences[index]) ? SENTENCE_GAP : 0);
+  const entry = { index, src, start, end, duration: buffer.duration, announced: false };
   s.scheduled.push(entry);
   src.onended = () => {
-    // Release the audio as soon as it has played — this is what keeps memory flat on long articles.
     src.disconnect();
-    src.buffer = null;
-    const i = s.scheduled.indexOf(entry);
-    if (i >= 0) s.scheduled.splice(i, 1);
+    src.buffer = null; // release the audio as soon as it has played
+    const k = s.scheduled.indexOf(entry);
+    if (k >= 0) s.scheduled.splice(k, 1);
     if (current !== s) return;
     if (!s.scheduled.length) {
-      if (allGenerated(s) && !s.ready.length) { emit('state', { state: 'ended' }); stop(); return; }
-      // Ran dry: generation is behind. Rebuffer instead of stuttering.
-      s.started = false;
-      s.need = Math.min(REBUFFER, remainingChars(s, s.next) / (CHARS_PER_SEC * s.speed));
-      stopTicker(s);
-      flush(s);
+      if (s.playNext >= s.sentences.length) { emit('state', { state: 'ended' }); stop(); return; }
+      if (!s.avail.has(s.playNext)) {
+        // Ran dry: generation is behind. Rebuffer instead of stuttering.
+        s.started = false;
+        let rest = 0;
+        for (let i = s.playNext; i < s.sentences.length; i++) rest += est(s, i);
+        s.need = Math.min(REBUFFER, rest);
+        stopTicker(s);
+        flush(s);
+        return;
+      }
     }
-    pump(s);
+    fill(s);
   };
 }
 
-// Announce each sentence when it actually starts playing, with its word timeline,
-// so the reader can animate the highlight locally instead of us sending every word.
+// Announce each sentence as it starts, with a word timeline the reader animates locally.
 function startTicker(s) {
   stopTicker(s);
   s.ticker = setInterval(() => {
@@ -184,7 +239,7 @@ function startTicker(s) {
     for (const it of s.scheduled) {
       if (!it.announced && t >= it.start) {
         it.announced = true;
-        emit('sentence', { index: it.index, duration: it.duration, elapsed: t - it.start, words: it.words });
+        emit('sentence', { index: it.index, duration: it.duration, elapsed: t - it.start, words: wordTimeline(s.sentences[it.index]) });
       }
     }
   }, 50);
@@ -192,10 +247,9 @@ function startTicker(s) {
 function stopTicker(s) { clearInterval(s.ticker); s.ticker = null; }
 
 function pause() {
-  const s = current;
-  s.paused = true;
+  current.paused = true;
   ctx.suspend();
-  stopTicker(s);
+  stopTicker(current);
   emit('state', { state: 'paused' });
 }
 
@@ -214,7 +268,7 @@ function stop() {
     stopTicker(s);
     for (const it of s.scheduled) { it.src.onended = null; try { it.src.stop(); } catch {} it.src.disconnect(); it.src.buffer = null; }
     s.scheduled.length = 0;
-    s.ready.length = 0;
+    s.fresh.clear();
   }
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
@@ -233,9 +287,9 @@ function wordTimeline(text) {
     words.push([m.index, w.length, total]);
     total += w.length + 1.5 + (/[.!?]["'”’)\]]?$/.test(w) ? 5 : /[,;:]$/.test(w) ? 3 : 0);
   }
-  // Kokoro pads a little silence at each end; fit the words into the middle of the clip.
   return words.map(([c, l, at]) => [c, l, 0.04 + (at / (total || 1)) * 0.9]);
 }
 
 // Read-only snapshot for debugging from the offscreen console (and the test suite).
-globalThis.voxlyDebug = () => ({ active: !!current, ready: current?.ready.length ?? 0, scheduled: current?.scheduled.length ?? 0, rtf: current?.rtf ?? null, engine: current?.engine ?? null });
+globalThis.voxlyDebug = () => current && ({ playNext: current.playNext, genNext: current.genNext, avail: current.avail.size,
+  scheduled: current.scheduled.length, fresh: current.fresh.size, rtf: current.rtf });

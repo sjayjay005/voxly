@@ -23,16 +23,18 @@ src/
     voices.js        natural voice list and default settings
   offscreen/
     player.js        buffered natural-voice player (see below)
-    kokoro-worker.js bundled Kokoro + ONNX runtime (built from scripts/kokoro-worker.src.js, don't edit)
+    kokoro-worker.js bundled Kokoro + ONNX runtime (built, don't edit)
 lib/Readability.js   vendored from @mozilla/readability (built)
 ort/                 ONNX WebAssembly runtime (built)
 ```
 
-**Natural voice playback** works like a video player. It measures how fast this computer synthesizes speech, buffers enough audio up front that playback won't overtake generation (never more than ~30s), plays sentences back-to-back on one audio timeline, keeps at most 45s generated ahead, and frees each sentence's audio once it has played. If generation ever falls behind it shows *Buffering* rather than stuttering. A minute after you stop, the offscreen document closes so the model's memory is released.
+**Natural voice playback** works like a video player with a download manager. A generator synthesizes the whole article in order and saves each sentence to a local audio cache (IndexedDB, 16-bit PCM, ~200 MB cap, least-recently-played evicted), so replays and resumes start instantly. The player measures how fast this computer synthesizes speech (and remembers it), buffers enough audio up front that playback won't overtake generation — never asking you to wait more than ~45s — plays sentences back-to-back on one audio timeline, keeps only ~30s decoded in memory, and frees each sentence's audio once it has played. On a machine too slow to keep up, it offers to switch to the standard voice. If generation ever falls behind it shows *Buffering* rather than stuttering. A minute after you stop, the offscreen document closes so the model's memory is released.
 
-**CPU or GPU, decided by measurement.** The worker has two engines: the 8-bit model (~90 MB) on WebAssembly using every core but one, and the full-precision model (~330 MB) on WebGPU. A new machine starts on the CPU engine, which is small and works everywhere. If it can't keep up with realtime and the machine has a real GPU adapter (not a software one), the worker loads the GPU engine mid-article, measures it on a couple of sentences, keeps whichever is faster and frees the other. The verdict is stored in `chrome.storage.local` (`neuralEngine`), so the next session starts on the right engine immediately; it's re-measured if the GPU adapter changes or an engine fails to load. Machines whose CPU is already faster than realtime never download the GPU model. Buffering estimates use the worker's own timing, which excludes model loading, so a fast machine starts playing after the first sentence rather than waiting out a 30s prebuffer.
+**Performance choices for modest machines:** 8-bit CPU model (~90 MB) instead of the GPU model (~330 MB); half the CPU cores; one message per sentence instead of per word (the reader animates the highlight itself with `requestAnimationFrame`, which pauses in background tabs); no blur or always-running animations; `content-visibility` on paragraphs so long articles stay cheap.
 
-**Other performance choices for modest machines:** one message per sentence instead of per word (the reader animates the highlight itself with `requestAnimationFrame`, which pauses in background tabs); no blur or always-running animations; `content-visibility` on paragraphs so long articles stay cheap.
+**Resilience:** Chrome stops an idle extension service worker after ~30s, and a slow machine can take longer than that to generate one sentence. The reader sends a heartbeat every 20s, and if the connection still drops it reconnects and resumes from the current sentence.
+
+**Tip for older Macs:** Apple's Premium and Enhanced voices (System Settings → Accessibility → Spoken Content → System voice → Manage Voices) sound close to neural voices and cost almost no CPU. Voxly lists them first when Natural voice is off.
 
 ## Development
 
@@ -42,7 +44,7 @@ npm run build   # regenerate lib/, ort/ and src/offscreen/kokoro-worker.js from 
 npm run check   # syntax + manifest checks (also run in CI)
 npm run zip     # build + dist/voxly-<version>.zip for the Chrome Web Store
 ```
-Load the folder unpacked at `chrome://extensions` (Developer mode). The natural voice's console lives under **Inspect views → offscreen.html**; it logs load time, which engine (cpu/gpu) produced each sentence and its realtime factor, and `voxlyDebug()` shows buffer state and the active engine. To force a fresh CPU-vs-GPU measurement, remove the stored verdict from that console: `chrome.storage.local.remove('neuralEngine')`.
+Load the folder unpacked at `chrome://extensions` (Developer mode). The natural voice's console lives under **Inspect views → offscreen.html**; it logs load time and realtime factor per sentence, and `voxlyDebug()` shows buffer state.
 
 ## Dependency security
 Dependabot security updates are enabled; `.github/dependabot.yml` adds weekly grouped version updates and CI builds every PR. After merging one, run `npm install && npm run build` and commit the regenerated files. Alerts for `sharp` don't affect the extension (Node-only, never bundled) and are ignored.

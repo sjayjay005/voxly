@@ -13,8 +13,9 @@
   function open() {
     const doc = VX.extract();
     if (!doc.sentences.length) { alert("Voxly couldn't find any text to read on this page."); return; }
-    const port = chrome.runtime.connect({ name: 'voxly-reader' });
-    const s = (session = { port, doc, view: null, clock: null });
+    const s = (session = { port: null, doc, view: null, clock: null, heartbeat: 0, resumeAt: doc.startAt, retries: 0 });
+    const send = (type, data = {}) => { try { s.port.postMessage({ type, ...data }); } catch {} };
+    s.send = send;
     s.view = VX.createView(doc, {
       toggle() {
         const st = s.view.state;
@@ -27,15 +28,37 @@
       close
     });
     s.view.setState('buffering', 'Getting ready');
-    port.onMessage.addListener((m) => onMessage(s, m));
-    port.onDisconnect.addListener(() => {
-      if (session !== s) return;
-      stopClock(s);
-      s.view.setState('error', 'Voxly restarted. Close the reader and open it again.');
-    });
-    send('hello');
+    connect(s);
+    // Chrome stops an idle extension service worker after ~30s. A slow machine can spend longer than that
+    // generating one sentence, so keep the connection warm while the reader is open.
+    s.heartbeat = setInterval(() => send('ping'), 20_000);
+  }
 
-    function send(type, data = {}) { try { port.postMessage({ type, ...data }); } catch {} }
+  function connect(s) {
+    const port = chrome.runtime.connect({ name: 'voxly-reader' });
+    s.port = port;
+    port.onMessage.addListener((m) => onMessage(s, m));
+    port.onDisconnect.addListener(() => reconnect(s, port));
+    s.send('hello', { lang: document.documentElement.lang || navigator.language });
+    // If a restarting service worker accepts the connection but never answers, try again.
+    clearTimeout(s.helloTimer);
+    s.helloTimer = setTimeout(() => { if (session === s && s.port === port) { try { port.disconnect(); } catch {} reconnect(s, port); } }, 5000);
+  }
+
+  // The service worker restarted (Chrome stops idle ones, and updates restart them). Reconnect and
+  // carry on from the current sentence, playing again only if we were playing before.
+  function reconnect(s, port) {
+    if (session !== s || s.port !== port) return;
+    s.port = null;
+    stopClock(s);
+    if (s.autoplay === undefined || !s.reconnecting) {
+      s.autoplay = ['playing', 'buffering'].includes(s.view.state);
+      s.resumeAt = Math.max(s.view.active, 0);
+    }
+    s.reconnecting = true;
+    if (++s.retries > 4) { s.view.setState('error', 'Voxly lost its connection. Close the reader and open it again.'); return; }
+    s.view.setState('buffering', 'Reconnecting');
+    setTimeout(() => { if (session === s) connect(s); }, 600 * s.retries);
   }
 
   function onMessage(s, m) {
@@ -43,8 +66,11 @@
     const { view } = s;
     switch (m.type) {
       case 'init':
+        clearTimeout(s.helloTimer);
+        s.reconnecting = false;
         view.setSettings(m.settings, { system: m.systemVoices, neural: m.neuralVoices });
-        s.port.postMessage({ type: 'play', sentences: s.doc.sentences, index: s.doc.startAt });
+        if (s.autoplay === false) { s.send('load', { sentences: s.doc.sentences, index: s.resumeAt }); view.setState('paused'); }
+        else s.send('play', { sentences: s.doc.sentences, index: s.resumeAt });
         break;
       case 'settings': view.setSettings(m.settings); break;
       case 'state':
@@ -54,9 +80,13 @@
         else stopClock(s);
         break;
       case 'sentence':
+        s.retries = 0;
         view.setSentence(m.index);
         stopClock(s);
         if (m.words) startClock(s, m); // natural voice: animate words locally from the timeline
+        break;
+      case 'hint':
+        view.setHint(m.text, m.action);
         break;
       case 'word': // standard voices report real word boundaries
         if (m.index === view.active) view.setWord(m.index, m.charIndex, m.length);
@@ -101,6 +131,8 @@
     const s = session;
     if (!s) return;
     session = null;
+    clearInterval(s.heartbeat);
+    clearTimeout(s.helloTimer);
     stopClock(s);
     try { s.port.postMessage({ type: 'close' }); s.port.disconnect(); } catch {}
     s.view.destroy();

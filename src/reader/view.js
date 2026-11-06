@@ -46,7 +46,7 @@
   .top .site { letter-spacing: .01em; }
   .close { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
   .close:hover { color: var(--ink); }
-  .close svg { width: 16px; height: 16px; }
+  .close svg { width: 16px; height: 16px; fill: currentColor; }
   .close kbd { font: inherit; font-size: 11px; padding: 2px 5px; border: 1px solid var(--rule); border-radius: 4px; }
 
   .column { position: relative; max-width: 34em; margin: 0 auto; padding: 28px 24px 200px; }
@@ -68,7 +68,7 @@
 
   /* dock */
   .dock { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 4; width: min(760px, calc(100% - 24px));
-          display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 14px; padding: 10px 14px 10px 10px;
+          display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 10px 14px 10px 10px;
           background: var(--dock); color: var(--dock-ink); border-radius: 18px; box-shadow: 0 14px 40px -18px rgba(20,22,35,.55);
           font: 500 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
   .transport { display: flex; align-items: center; gap: 2px; }
@@ -84,12 +84,18 @@
   [data-state="paused"] .play .i-pause, [data-state="ended"] .play .i-pause, [data-state="error"] .play .i-pause { opacity: 0; transform: scale(.5); }
   [data-state="paused"] .play .i-play, [data-state="error"] .play .i-play { opacity: 1; transform: none; }
   [data-state="ended"] .play .i-replay { opacity: 1; transform: none; }
-  [data-state="buffering"] .play { background: transparent; box-shadow: inset 0 0 0 2px rgba(255,255,255,.18); }
-  [data-state="buffering"] .play::after { content: ''; position: absolute; inset: -2px; border-radius: 15px; border: 2px solid transparent;
-          border-top-color: var(--brand); animation: spin 1s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  .play .ring { position: absolute; left: -4px; top: -4px; width: 54px; height: 54px; opacity: 0; transform: none; transition: opacity .2s; pointer-events: none; fill: none; }
+  .ring circle { fill: none; stroke-width: 3; }
+  .ring .rt { stroke: rgba(255,255,255,.12); }
+  .ring .rp { stroke: var(--brand); stroke-linecap: round; stroke-dasharray: 150.8; stroke-dashoffset: 150.8;
+              transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset .4s; }
+  [data-state="buffering"] .play { background: transparent; color: var(--dock-ink); }
+  [data-state="buffering"] .play .ring { opacity: 1; }
+  [data-state="buffering"] .play .i-pause { width: 18px; height: 18px; }
+  [data-state="buffering"] .ring.spin .rp { stroke-dashoffset: 113; animation: spin 1.1s linear infinite; }
+  @keyframes spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
 
-  .progress { min-width: 0; display: grid; gap: 7px; }
+  .progress { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; padding-right: 4px; }
   .track { position: relative; height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); cursor: pointer; }
   .track::before { content: ''; position: absolute; inset: -8px 0; } /* bigger hit area */
   .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px; background: var(--dock-ink); transition: width .3s; }
@@ -97,7 +103,9 @@
   [data-state="buffering"] .buffer { opacity: 1; }
   [data-state="buffering"] .fill { opacity: 0; }
   .line { display: flex; justify-content: space-between; gap: 12px; color: var(--dock-muted); white-space: nowrap; }
-  .status { overflow: hidden; text-overflow: ellipsis; }
+  .status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .left { flex: none; }
+  [data-state="error"] .left { display: none; }
   [data-state="error"] .status { color: #FF9B8F; white-space: normal; }
   .left { font-variant-numeric: tabular-nums; }
 
@@ -116,6 +124,13 @@
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dock-ink); }
   select option { color: #1E2230; background: #fff; }
 
+  .hint { position: absolute; left: 50%; bottom: 96px; transform: translate(-50%, 10px); z-index: 4; opacity: 0; pointer-events: none;
+          display: flex; align-items: center; gap: 12px; max-width: min(620px, calc(100% - 24px)); padding: 10px 10px 10px 16px; border-radius: 14px;
+          background: var(--dock); color: var(--dock-ink); font: 400 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+          transition: opacity .2s, transform .2s; }
+  .hint.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+  .hint button { flex: none; padding: 7px 11px; border-radius: 9px; background: var(--brand); color: var(--brand-ink); font-weight: 600; }
+  .hint .x { background: none; color: var(--dock-muted); padding: 7px; }
   .back { position: absolute; left: 50%; bottom: 96px; transform: translate(-50%, 10px); z-index: 4; opacity: 0; pointer-events: none;
           padding: 8px 14px; border-radius: 999px; background: var(--dock); color: var(--dock-ink);
           font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif; transition: opacity .2s, transform .2s; }
@@ -123,7 +138,7 @@
 
   @media (max-width: 640px) {
     .root { font-size: 19px; }
-    .dock { grid-template-columns: auto 1fr; } .settings { grid-column: 1 / -1; justify-content: space-between; }
+    .dock { grid-template-columns: auto minmax(0, 1fr); } .settings { grid-column: 1 / -1; justify-content: space-between; }
     .back { bottom: 150px; }
   }
   @media (prefers-reduced-motion: reduce) { * { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
@@ -142,9 +157,10 @@
           <article class="column"><div class="marker"></div></article>
         </div>
         <button class="back">Back to where it's reading</button>
+        <div class="hint" role="status"><span class="hint-text"></span><button class="hint-act"></button><button class="x" title="Dismiss">✕</button></div>
         <div class="dock">
           <div class="transport">
-            <button class="play" title="Play / pause (Space)">${svg('pause', 'i-pause')}${svg('play', 'i-play')}${svg('replay', 'i-replay')}</button>
+            <button class="play" title="Play / pause (Space)"><svg class="ring spin" viewBox="0 0 54 54" aria-hidden="true"><circle class="rt" cx="27" cy="27" r="24"/><circle class="rp" cx="27" cy="27" r="24"/></svg>${svg('pause', 'i-pause')}${svg('play', 'i-play')}${svg('replay', 'i-replay')}</button>
             <button class="skip" data-skip="-1" title="Previous sentence (←)">${svg('prev')}</button>
             <button class="skip" data-skip="1" title="Next sentence (→)">${svg('next')}</button>
           </div>
@@ -162,7 +178,7 @@
       </div>`;
 
     const $ = (s) => shadow.querySelector(s);
-    const el = { root: $('.root'), scroller: $('.scroller'), column: $('.column'), marker: $('.marker'), back: $('.back'),
+    const el = { ring: $('.ring'), rp: $('.ring .rp'), root: $('.root'), scroller: $('.scroller'), column: $('.column'), marker: $('.marker'), back: $('.back'),
                  fill: $('.fill'), buffer: $('.buffer'), track: $('.track'), status: $('.status'), left: $('.left'),
                  speed: $('.speed output'), sw: $('.switch'), voice: $('.voice') };
     $('.site').textContent = doc.site;
@@ -226,6 +242,10 @@
     el.scroller.addEventListener('wheel', takeOver, { passive: true });
     el.scroller.addEventListener('touchmove', takeOver, { passive: true });
     el.back.addEventListener('click', () => { follow = true; el.back.classList.remove('on'); scrollToActive(true); });
+
+    const hint = { box: $('.hint'), text: $('.hint-text'), act: $('.hint-act') };
+    hint.act.addEventListener('click', () => { hint.box.classList.remove('on'); act.settings({ natural: false }); });
+    $('.hint .x').addEventListener('click', () => hint.box.classList.remove('on'));
 
     // ---- events ----
     el.column.addEventListener('click', (e) => {
@@ -298,13 +318,21 @@
       setState(next, detail = '', progress = null) {
         state = next;
         el.root.dataset.state = next;
+        // "Preparing natural voice — about 40s": the wait goes in the right-hand slot so it never gets truncated.
+        const [label, eta] = next === 'buffering' ? (detail || 'Getting ready').split(' — ') : [];
+        el.left.textContent = next === 'buffering' ? (eta || '').replace(/^about /, '~') : timeLeft();
         el.status.textContent =
-          next === 'buffering' ? detail || 'Getting ready' :
+          next === 'buffering' ? label :
           next === 'paused' ? 'Paused' :
           next === 'ended' ? 'Finished' :
           next === 'error' ? detail || 'Something went wrong. Press play to try again.' :
           `Sentence ${active + 1} of ${doc.sentences.length}`;
-        if (progress != null) el.buffer.style.width = Math.round(Math.min(1, progress) * 100) + '%';
+        // Determinate ring when we know how far along buffering is, a spinner when we don't.
+        const p = progress == null ? null : Math.min(1, Math.max(0, progress));
+        el.ring.classList.toggle('spin', p == null);
+        el.rp.style.strokeDashoffset = p == null ? '' : String(150.8 * (1 - Math.max(p, 0.04)));
+        if (p != null) el.buffer.style.width = Math.round(p * 100) + '%';
+        el.status.title = el.status.textContent;
         if (next !== 'playing' && next !== 'paused') el.marker.classList.remove('on');
       },
       setSentence(i) {
@@ -340,6 +368,12 @@
         el.marker.classList.add('on');
       },
       clearWord() { el.marker.classList.remove('on'); },
+      setHint(text, action) {
+        hint.text.textContent = text;
+        hint.act.textContent = action || 'OK';
+        hint.box.classList.add('on');
+        el.back.classList.remove('on');
+      },
       get active() { return active; },
       get state() { return state; },
       destroy() {
