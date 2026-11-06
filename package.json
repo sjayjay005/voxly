@@ -12,7 +12,7 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.3.2",
     "@mozilla/readability": "^0.6.0",
     "kokoro-js": "^1.2.1"
   },
