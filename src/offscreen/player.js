@@ -17,8 +17,18 @@ const IDLE_CLOSE_MS = 60_000;
 const worker = new Worker('kokoro-worker.js');
 const pending = new Map();
 let rid = 0;
+// The worker picks between its CPU and GPU engines by measuring them (see kokoro-worker.src.js). We keep its
+// verdict so the next session starts on the right engine without measuring again.
+let enginePref = chrome.storage.local.get('neuralEngine').then((r) => r.neuralEngine ?? null).catch(() => null);
 worker.onmessage = ({ data }) => {
-  if (data.type === 'progress') return current && emit('state', { state: 'buffering', detail: data.percent < 100 ? `Downloading natural voice (first time only)` : 'Loading natural voice', progress: data.percent / 100 });
+  if (data.type === 'engine') {
+    enginePref = Promise.resolve({ engine: data.engine, adapter: data.adapter, rtf: data.rtf });
+    chrome.storage.local.set({ neuralEngine: { engine: data.engine, adapter: data.adapter, rtf: data.rtf } }).catch(() => {});
+    return;
+  }
+  // A download may also happen mid-article (the worker trying its other engine); only report it while we're
+  // waiting anyway, never over audio that is playing fine.
+  if (data.type === 'progress') return current && !current.started && emit('state', { state: 'buffering', detail: data.percent < 100 ? `Downloading natural voice (first time only)` : 'Loading natural voice', progress: data.percent / 100 });
   if (data.type === 'status') return current && emit('state', { state: 'buffering', detail: data.text });
   const p = pending.get(data.id);
   if (!p) return;
@@ -30,7 +40,7 @@ function rpc(msg) {
   return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); worker.postMessage({ ...msg, id, baseUrl: chrome.runtime.getURL('') }); });
 }
 // Exposed so tests can substitute a fake synthesizer; production always uses the worker.
-globalThis.voxlySynth = { generate: (text, voice, speed) => rpc({ type: 'generate', text, voice, speed }) };
+globalThis.voxlySynth = { generate: async (text, voice, speed) => rpc({ type: 'generate', text, voice, speed, pref: await enginePref }) };
 
 // ---- messaging ----
 let current = null; // the active session
@@ -61,6 +71,7 @@ function start({ sid, sentences, from, voice, speed }) {
     scheduled: [],         // scheduled on the timeline: {index, src, start, end, words, announced}
     timelineEnd: 0,
     rtf: null,             // audio seconds produced per wall-clock second (EMA)
+    engine: null,          // 'cpu' | 'gpu': which worker engine produced the last sentence
     started: false,        // false while (re)buffering
     need: 0,               // seconds of audio required before (re)starting
     paused: false,
@@ -97,8 +108,12 @@ async function pump(s) {
       const wall = (performance.now() - t0) / 1000;
       const buffer = ctx.createBuffer(1, res.audio.length, res.sampleRate);
       buffer.copyToChannel(res.audio, 0);
-      const rtf = buffer.duration / Math.max(wall, 0.001);
-      s.rtf = s.rtf == null ? rtf : s.rtf * 0.7 + rtf * 0.3;
+      // Prefer the worker's own measurement: it excludes model loading and smooths out warm-up, so the first
+      // sentence no longer makes a fast machine wait for a 30s prebuffer. Wall-clock is the fallback (tests).
+      const rtf = res.rtf ?? buffer.duration / Math.max(wall, 0.001);
+      const engine = res.engine ?? null;
+      s.rtf = s.rtf == null || engine !== s.engine ? rtf : s.rtf * 0.7 + rtf * 0.3; // a new engine: start over
+      s.engine = engine;
       s.ready.push({ index, buffer, words: wordTimeline(text) });
       flush(s);
     }
@@ -223,4 +238,4 @@ function wordTimeline(text) {
 }
 
 // Read-only snapshot for debugging from the offscreen console (and the test suite).
-globalThis.voxlyDebug = () => ({ active: !!current, ready: current?.ready.length ?? 0, scheduled: current?.scheduled.length ?? 0, rtf: current?.rtf ?? null });
+globalThis.voxlyDebug = () => ({ active: !!current, ready: current?.ready.length ?? 0, scheduled: current?.scheduled.length ?? 0, rtf: current?.rtf ?? null, engine: current?.engine ?? null });
