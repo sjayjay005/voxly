@@ -1,0 +1,20 @@
+# Dependabot security updates are enabled in the repository settings; this file adds
+# weekly version updates, grouped so one PR covers the whole bump.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      all-dependencies:
+        patterns: ['*']
+    ignore:
+      # Node-only, never bundled into the extension.
+      - dependency-name: sharp
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,40 @@
+# Every PR and push to master rebuilds the vendored files from package.json versions and
+# runs the syntax and manifest checks. A dependency bump that breaks the build fails here.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Rebuild vendored files
+        run: npm run build
+
+      - name: Syntax and manifest checks
+        run: npm run check
+
+      # The vendored files are committed, so a bump that changes them should be committed too.
+      # A warning rather than a failure: esbuild output is not guaranteed byte-identical
+      # between the machine that committed it and this runner.
+      - name: Warn if vendored files look stale
+        run: |
+          if ! git diff --quiet -- lib ort src/offscreen/kokoro-worker.js; then
+            echo "::warning::Vendored files differ after a rebuild. Run 'npm run build' locally and commit the result if the change is real."
+            git diff --stat -- lib ort src/offscreen/kokoro-worker.js
+          fi
