@@ -36,11 +36,24 @@ async function openReader(tab) {
     await chrome.tabs.sendMessage(tab.id, { type: 'voxly:toggle' });
   } catch (e) {
     // chrome:// pages, the Web Store and the PDF viewer don't allow extensions to run.
-    chrome.action.setBadgeText({ tabId: tab.id, text: '!' });
-    chrome.action.setTitle({ tabId: tab.id, title: "Voxly can't read this page" });
-    setTimeout(() => chrome.action.setBadgeText({ tabId: tab.id, text: '' }), 3000);
+    badgeUnreadable(tab.id);
   }
 }
+
+// Flash '!' on the toolbar icon. This is the only feedback channel we have when there is no
+// reader on screen to put a message in.
+function badgeUnreadable(tabId, title = "Voxly can't read this page") {
+  if (tabId == null) return;
+  chrome.action.setBadgeText({ tabId, text: '!' });
+  chrome.action.setTitle({ tabId, title });
+  setTimeout(() => chrome.action.setBadgeText({ tabId, text: '' }), 3000);
+}
+
+// The reader ran but found nothing worth reading. It has no UI up at that point, so it asks us
+// to badge the icon rather than interrupting the page with a dialog.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type === 'voxly:unreadable') badgeUnreadable(sender.tab?.id, 'Voxly found no text to read on this page');
+});
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'voxly-reader') return;
