@@ -1,5 +1,5 @@
 // Turns the current page into a small document model:
-//   { title, site, blocks: [{ kind, sentences: [{ text, index }] }], sentences: string[], startAt }
+//   { title, site, blocks: [{ kind, sentences: [{ text, index }] }], sentences: string[], blockStarts, startAt }
 // Readability finds the article; we then keep only leaf text blocks and split them into sentences.
 // Sentences are the unit of everything downstream: playback, highlighting, seeking.
 (() => {
@@ -105,6 +105,9 @@
       const ss = b.kind === 'code' ? [b.text.slice(0, MAX_SENTENCE)] : splitSentences(b.text, lang);
       model.push({ kind: b.kind, sentences: ss.map((text) => ({ text, index: sentences.push(text) - 1 })) });
     }
-    return { title: clean(title), site: location.hostname.replace(/^www\./, ''), blocks: model, sentences, startAt: findStart(sentences) };
+    // The first sentence of each block, so playback can change voice at a paragraph break
+    // rather than mid-thought.
+    const blockStarts = model.map((b) => b.sentences[0]?.index).filter((i) => i != null);
+    return { title: clean(title), site: location.hostname.replace(/^www\./, ''), blocks: model, sentences, blockStarts, startAt: findStart(sentences) };
   };
 })();

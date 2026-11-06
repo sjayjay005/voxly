@@ -3,11 +3,12 @@
 // disconnects and everything is torn down — no orphaned audio, no lingering state.
 import { createSystemEngine } from './system-engine.js';
 import { createNeuralEngine } from './neural-engine.js';
+import { createHybridEngine } from './hybrid-engine.js';
 import { NEURAL_VOICES, DEFAULT_SETTINGS } from './voices.js';
 
 const READER_FILES = ['lib/Readability.js', 'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
 
-/** @type {{port: chrome.runtime.Port, sentences: string[], index: number, state: string, engine: object} | null} */
+/** @type {{port: chrome.runtime.Port, sentences: string[], blockStarts: number[], index: number, state: string, engine: object} | null} */
 let session = null;
 
 const emit = (type, data) => {
@@ -17,7 +18,21 @@ const emit = (type, data) => {
   try { session.port.postMessage({ type, ...data }); } catch {}
 };
 
-const engines = { system: createSystemEngine(emit), neural: createNeuralEngine(emit) };
+// The hybrid engine needs to know which engine an event came from — it follows the system
+// voice's progress while the natural one generates. Everything still reaches the reader.
+const taps = new Set();
+const tap = (fn) => { taps.add(fn); return () => taps.delete(fn); };
+const emitFrom = (who) => (type, data) => {
+  for (const fn of [...taps]) fn(who, type, data);
+  emit(type, data);
+};
+
+const engines = {
+  system: createSystemEngine(emitFrom('system')),
+  neural: createNeuralEngine(emitFrom('neural'))
+};
+engines.hybrid = createHybridEngine(emit, { system: engines.system, neural: engines.neural, tap });
+
 const getSettings = () => chrome.storage.sync.get(DEFAULT_SETTINGS);
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -58,7 +73,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'voxly-reader') return;
   endSession(); // one reader at a time
-  session = { port, sentences: [], index: 0, state: 'idle', engine: null };
+  session = { port, sentences: [], blockStarts: [], index: 0, state: 'idle', engine: null };
   const mine = session;
   port.onMessage.addListener((msg) => { if (session === mine) handle(msg); });
   port.onDisconnect.addListener(() => { if (session === mine) endSession(); });
@@ -74,11 +89,13 @@ async function handle(msg) {
     }
     case 'load': // reconnected while paused: remember the article without starting playback
       session.sentences = msg.sentences;
+      session.blockStarts = msg.blockStarts || [];
       session.index = msg.index;
       session.state = 'paused';
       break;
     case 'play':
       if (msg.sentences) session.sentences = msg.sentences;
+      if (msg.blockStarts) session.blockStarts = msg.blockStarts;
       await play(msg.index ?? session.index);
       break;
     case 'pause': session.engine?.pause(); break;
@@ -87,8 +104,13 @@ async function handle(msg) {
       const next = { ...(await getSettings()), ...msg.patch };
       await chrome.storage.sync.set(next);
       emit('settings', { settings: next });
-      // Restart from the current sentence if the change affects how it sounds.
-      if (session.state === 'playing' || session.state === 'buffering') await play(session.index);
+      if (session.state !== 'playing' && session.state !== 'buffering') break;
+      // A speed change alone never restarts the natural voice: it keeps playing what it has and
+      // re-generates in the background. Anything else (voice, engine) has to start over.
+      const patched = Object.keys(msg.patch);
+      const rateOnly = patched.length === 1 && patched[0] === 'rate';
+      if (rateOnly && session.engine?.rate) session.engine.rate(next.rate);
+      else await play(session.index);
       break;
     }
     case 'close': endSession(); break;
@@ -106,14 +128,25 @@ function rankVoices(voices, lang = navigator.language) {
     .map(({ score, ...v }) => v);
 }
 
+/**
+ * Which engine reads this. The hybrid engine is the default for the natural voice: it starts in
+ * the system voice and changes over when the natural one is ready, which on a slow machine is the
+ * difference between speaking at once and waiting the better part of a minute. Turning off
+ * `handoff` goes straight to the natural voice and waits for it.
+ */
+function pickEngine(settings) {
+  if (!settings.natural) return engines.system;
+  return settings.handoff ? engines.hybrid : engines.neural;
+}
+
 async function play(index) {
   const settings = await getSettings();
-  const engine = settings.natural ? engines.neural : engines.system;
+  const engine = pickEngine(settings);
   for (const e of Object.values(engines)) if (e !== engine) e.stop();
   session.engine = engine;
   session.index = Math.max(0, Math.min(index, session.sentences.length - 1));
   emit('sentence', { index: session.index });
-  await engine.start(session.sentences, session.index, settings);
+  await engine.start(session.sentences, session.index, settings, { blockStarts: session.blockStarts });
 }
 
 function endSession() {
