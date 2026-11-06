@@ -29,6 +29,9 @@ jobs:
       - name: Syntax and manifest checks
         run: npm run check
 
+      - name: Unit tests
+        run: npm test
+
       # The vendored files are committed, so a bump that changes them should be committed too.
       # A warning rather than a failure: esbuild output is not guaranteed byte-identical
       # between the machine that committed it and this runner.
