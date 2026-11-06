@@ -13,6 +13,13 @@ updates:
     ignore:
       # Node-only, never bundled into the extension.
       - dependency-name: sharp
+      # kokoro-js pins @huggingface/transformers ^3, so a major bump here does not replace v3 --
+      # npm keeps a nested copy and esbuild bundles both. The worker then configures `env` on the
+      # v4 instance while kokoro-js loads the model through v3, whose env is never set, so the
+      # ONNX runtime would be fetched from a CDN at runtime and blocked by our CSP. Minor and
+      # patch updates inside v3 are still proposed. Lift this when kokoro-js supports v4.
+      - dependency-name: "@huggingface/transformers"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
