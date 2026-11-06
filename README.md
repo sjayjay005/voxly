@@ -18,12 +18,16 @@ See [privacy.html](https://sjayjay005.github.io/voxly/privacy.html).
 ## Credits
 Article extraction uses [Mozilla Readability](https://github.com/mozilla/readability) (Apache-2.0, see `Readability-LICENSE.md`).
 
-## Neural voices (v1.1)
-`kokoro-worker.js` is a bundle of [kokoro-js](https://github.com/hexgrad/kokoro) + transformers.js. To rebuild it:
+## Building
+The extension ships with a few vendored files built from npm packages (`Readability.js`, `kokoro-worker.js`, `ort/`).
 ```
-npm i kokoro-js esbuild
-npx esbuild build/kokoro-worker.src.js --bundle --format=iife --platform=browser --minify --target=chrome116 \
-  --alias:fs/promises=./build/empty.js --alias:path=./build/empty.js --alias:fs=./build/empty.js \
-  --external:onnxruntime-node --outfile=kokoro-worker.js
+npm install
+npm run build     # regenerate the vendored files from package.json versions
+npm run zip       # same, plus dist/voxly-<version>.zip for the Chrome Web Store
 ```
-then replace the jsDelivr wasm fallback URL in the bundle with `${self.location.origin}/ort/`, and copy the `ort-wasm-simd-threaded*` files from `@huggingface/transformers/dist` and `onnxruntime-web/dist` into `ort/`.
+
+## Dependency security
+- **Dependabot security updates** are enabled in Settings → Advanced Security, and `.github/dependabot.yml` adds weekly grouped version updates.
+- The **Build** workflow runs on every PR, so a Dependabot bump that breaks the bundle fails before you merge.
+- After merging a Dependabot PR, run `npm install && npm run build` (or `npm run zip`) and commit the regenerated files — the extension uses the vendored copies, not `node_modules`.
+- Alerts for `sharp` (pulled in by `@huggingface/transformers`) don't affect the extension: sharp is a Node-only image library and isn't included in the browser bundle. They can be dismissed as "vulnerable code is not actually used".
