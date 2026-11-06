@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 300px; margin: 0; padding: 14px; background: #16131f; color: #eee;
+           font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    h1 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+    h1 img { width: 22px; height: 22px; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; }
+    button { flex: 1; border: 0; border-radius: 8px; padding: 9px; background: #6d4aff; color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+    button.sec { background: #2a2440; font-weight: 500; }
+    button:hover { filter: brightness(1.12); }
+    label { display: block; margin: 10px 0 4px; color: #bbb; font-size: 12px; }
+    label span { float: right; color: #fff; font-variant-numeric: tabular-nums; }
+    select, input[type=range] { width: 100%; }
+    select { background: #2a2440; color: #eee; border: 1px solid #3a3258; border-radius: 6px; padding: 6px; font: inherit; }
+    input[type=range] { accent-color: #8b6cff; }
+    .hint { margin-top: 12px; color: #888; font-size: 11px; }
+    kbd { background: #2a2440; border-radius: 4px; padding: 1px 4px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h1><img src="icons/icon48.png" alt="">Voxly</h1>
+  <div class="row">
+    <button id="readSel">Read selection</button>
+    <button id="readPage" class="sec">Read page</button>
+  </div>
+  <label for="voice">Voice</label>
+  <select id="voice"><option value="">System default</option></select>
+  <label for="rate">Speed <span id="rateVal"></span></label>
+  <input id="rate" type="range" min="0.5" max="3" step="0.1">
+  <label for="pitch">Pitch <span id="pitchVal"></span></label>
+  <input id="pitch" type="range" min="0.5" max="2" step="0.1">
+  <div class="row" style="margin-top:12px"><button id="test" class="sec">Test voice</button></div>
+  <div class="hint"><kbd>Alt+Shift+R</kbd> read · <kbd>Alt+Shift+P</kbd> pause · or right-click any text</div>
+  <script src="popup.js"></script>
+</body>
+</html>
