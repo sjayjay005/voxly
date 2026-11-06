@@ -12,7 +12,9 @@
 
   function open() {
     const doc = VX.extract();
-    if (!doc.sentences.length) { alert("Voxly couldn't find any text to read on this page."); return; }
+    // Nothing to read. No reader is on screen yet, so let the service worker badge the toolbar
+    // icon instead of interrupting the page with a dialog.
+    if (!doc.sentences.length) { chrome.runtime.sendMessage({ type: 'voxly:unreadable' }).catch(() => {}); return; }
     const s = (session = { port: null, doc, view: null, clock: null, heartbeat: 0, resumeAt: doc.startAt, retries: 0 });
     const send = (type, data = {}) => { try { s.port.postMessage({ type, ...data }); } catch {} };
     s.send = send;
