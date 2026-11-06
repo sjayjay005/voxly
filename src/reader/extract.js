@@ -10,6 +10,15 @@
   const MAX_SENTENCE = 240; // keeps every utterance inside what Chrome's online voices handle without cutting out
 
   const clean = (s) => s.replace(/\s+/g, ' ').trim();
+  // Page furniture that article extractors often keep: reading times, dates, photo credits, share prompts.
+  const NOISE = [
+    /^\d+\s*(min|minute)s?\s*(read|listen)$/i,
+    /^(\d+|a|an)\s+(second|minute|hour|day|week|month|year)s?\s+ago$/i,
+    /^(photo|image|illustration|picture)\s*(by|:|credit|via|courtesy)/i,
+    /^(share|listen|follow|subscribe|sign up|sign in|advertisement|sponsored|read more|related)\b.{0,20}$/i,
+    /^(updated|published|posted)\s.{0,40}$/i
+  ];
+  const isNoise = (t) => t.length < 80 && NOISE.some((r) => r.test(t));
 
   function blocksFrom(root) {
     const blocks = [];
@@ -18,9 +27,10 @@
       if (el.closest('nav,aside,footer,figure > :not(figcaption),[aria-hidden="true"]')) continue;
       const text = clean(el.textContent || '');
       if (!text) continue;
+      if (el.tagName === 'FIGCAPTION' && isNoise(text)) continue;
       const tag = el.tagName.toLowerCase();
       const kind = /^h[1-6]$/.test(tag) ? 'heading' : tag === 'li' ? 'item' : tag === 'blockquote' ? 'quote' : tag === 'pre' ? 'code' : 'text';
-      if (kind === 'text' && text.length < 3) continue;
+      if (kind === 'text' && (text.length < 3 || isNoise(text))) continue;
       blocks.push({ kind, text });
     }
     return blocks;

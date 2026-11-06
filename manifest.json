@@ -2,20 +2,52 @@
   "manifest_version": 3,
   "name": "Voxly – Free Read Aloud",
   "short_name": "Voxly",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Turns any article into clean, readable text and reads it aloud with word-by-word highlighting. Free, private, no account.",
   "minimum_chrome_version": "116",
-  "permissions": ["activeTab", "scripting", "storage", "tts", "contextMenus", "offscreen"],
-  "background": { "service_worker": "src/background/main.js", "type": "module" },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tts",
+    "contextMenus",
+    "offscreen",
+    "unlimitedStorage"
+  ],
+  "background": {
+    "service_worker": "src/background/main.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "Read this page (Alt+Shift+R)",
-    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
-  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "commands": {
-    "_execute_action": { "suggested_key": { "default": "Alt+Shift+R" }, "description": "Open the reader and start reading" }
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
+      "description": "Open the reader and start reading"
+    }
   },
-  "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
-  "cross_origin_embedder_policy": { "value": "require-corp" },
-  "cross_origin_opener_policy": { "value": "same-origin" }
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "cross_origin_embedder_policy": {
+    "value": "require-corp"
+  },
+  "cross_origin_opener_policy": {
+    "value": "same-origin"
+  }
 }
