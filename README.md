@@ -49,4 +49,4 @@ Load the folder unpacked at `chrome://extensions` (Developer mode). The natural 
 ## Dependency security
 Dependabot security updates are enabled; `.github/dependabot.yml` adds weekly grouped version updates and CI builds every PR. After merging one, run `npm install && npm run build` and commit the regenerated files. Alerts for `sharp` don't affect the extension (Node-only, never bundled) and are ignored.
 
-Article extraction uses [Mozilla Readability](https://github.com/mozilla/readability) (Apache-2.0).
+Voxly is MIT licensed — see [LICENSE](LICENSE). Article extraction uses [Mozilla Readability](https://github.com/mozilla/readability) (Apache-2.0), vendored under `lib/`.
