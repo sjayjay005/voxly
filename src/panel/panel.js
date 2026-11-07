@@ -14,8 +14,17 @@ const el = (id) => document.getElementById(id);
 const ui = {
   empty: el('empty'), player: el('player'), title: el('title'), where: el('where'),
   saying: el('saying'), fill: el('fill'), toggle: el('toggle'), prev: el('prev'), next: el('next'),
-  natural: el('natural'), rate: el('rate'), slower: el('slower'), faster: el('faster'), stop: el('stop')
+  natural: el('natural'), rate: el('rate'), slower: el('slower'), faster: el('faster'), stop: el('stop'),
+  queue: el('queue'), qlist: el('qlist'), clear: el('clear'), qhow: el('qhow')
 };
+
+const AGO = [[86400, 'd'], [3600, 'h'], [60, 'm']];
+/** "3h ago", or "just now" under a minute. */
+function ago(at) {
+  const secs = Math.max(0, (Date.now() - at) / 1000);
+  for (const [span, unit] of AGO) if (secs >= span) return `${Math.floor(secs / span)}${unit} ago`;
+  return 'just now';
+}
 
 let port = null;
 let state = 'idle';
@@ -52,9 +61,11 @@ function onMessage(m) {
   switch (m.type) {
     case 'init':
       applySettings(m.settings);
+      renderQueue(m.queue || []);
       if (m.snapshot) applySnapshot(m.snapshot);
       else show(null);
       break;
+    case 'queue': renderQueue(m.items || []); break;
     case 'settings': applySettings(m.settings); break;
     case 'state':
       state = m.state;
@@ -88,6 +99,7 @@ function applySettings(s) {
 }
 
 /** `null` means nothing is reading. */
+/** `null` means nothing is reading. The queue stays visible either way — it is the point of it. */
 function show(s) {
   const live = !!s;
   ui.player.hidden = !live;
@@ -108,6 +120,41 @@ function render() {
   ui.prev.disabled = index <= 0;
   ui.next.disabled = total ? index >= total - 1 : true;
 }
+
+/**
+ * The list of things waiting. Each entry carries its own sentences in storage, so playing one
+ * needs nothing from the page it came from — which is the point: the tab is long gone.
+ */
+function renderQueue(items) {
+  ui.queue.hidden = !items.length;
+  ui.qhow.hidden = items.length > 0;
+  ui.qlist.replaceChildren(...items.map((it) => {
+    const li = document.createElement('li');
+
+    const play = document.createElement('button');
+    play.className = 'item';
+    play.title = `Read "${it.title}"`;
+    const t = document.createElement('span');
+    t.className = 't';
+    t.textContent = it.title;
+    const m = document.createElement('span');
+    m.className = 'm';
+    m.textContent = [it.site, `${it.count} sentences`, ago(it.addedAt)].filter(Boolean).join(' \u00b7 ');
+    play.append(t, m);
+    play.addEventListener('click', () => send('queue-play', { id: it.id }));
+
+    const x = document.createElement('button');
+    x.className = 'x';
+    x.title = `Remove "${it.title}"`;
+    x.textContent = '\u2715';
+    x.addEventListener('click', () => send('queue-remove', { id: it.id }));
+
+    li.append(play, x);
+    return li;
+  }));
+}
+
+ui.clear.addEventListener('click', () => send('queue-clear'));
 
 ui.toggle.addEventListener('click', () => {
   if (state === 'playing') send('pause');

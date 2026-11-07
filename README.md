@@ -4,6 +4,8 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 
 - Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
 - Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed (up to 3×), **Esc** closes.
+- **Listen later.** Right-click any page and choose *Listen to this later*; it waits in the player until you want it, and plays without the tab it came from.
+- **Hear a voice before choosing it** with the play button beside the voice list.
 - **Star a voice** and every article starts with it, whichever voice you tried last. Starring a Kokoro voice turns the natural voice on with it; starring one of your computer's voices turns it off.
 - **Aa** in the dock sets the colours (auto, light, sepia, dark), the typeface (serif, sans, or a dyslexia-friendly face), the text size and the column width.
 - **PDFs and EPUBs too.** Right-click the Voxly icon and choose *Read a PDF or EPUB with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
@@ -21,7 +23,8 @@ src/
     model.js         text → { title, blocks, sentences, blockStarts }; sentences are the unit of everything
     session.js       one reading session: the view, one Port, reconnection, the word clock
     tab-mark.js      marks the reading tab in the tab strip, and puts it back afterwards
-  panel/             the side panel: a player that outlives the page it started from
+  panel/             the side panel: the player and the listen-later queue
+  welcome/           what opens once, on install
   reader/            content scripts, injected only when you open the reader on a page
     extract.js       the page → blocks, via Readability
     view.js          the reader UI (shadow DOM): text, one moving highlight marker, control dock
@@ -55,6 +58,10 @@ ort/                 ONNX WebAssembly runtime (built)
 Two details make it actually work. Chrome stops an idle service worker after about 30 seconds, so the panel heartbeats like the reader does — but only while something is playing, since an open panel with nothing to read has no business holding the worker resident. And the panel keeps no copy of the document: the worker sends it the title, the position and the sentence being spoken, which is also why a panel opened halfway through an article can render the right state immediately.
 
 This is a side panel rather than a popup on purpose. A popup would have meant `action.default_popup`, which is mutually exclusive with `action.onClicked` — so clicking the toolbar icon would have opened a menu instead of reading the page, and one-click-to-read is the whole interaction. The side panel costs one extra permission (`sidePanel`) and no host permissions.
+
+**The queue stores text, not links.** Fetching a queued page later would need permission to read every site you visit, which Voxly does not ask for — so the article is extracted at the moment you add it, while the click that asked for it still grants `activeTab`. An entry is therefore a snapshot; re-add a page to pick up changes. It lives in `chrome.storage.local` (sync storage allows 100 KB, and one article can exceed that), capped at 50 entries and about 400,000 characters, dropping whatever has waited longest. The panel is sent a summary without the sentences, because redrawing a list should not move megabytes.
+
+**Voice preview** sits above the session check in the offscreen player and touches no session state, so it cannot disturb a reading or start one. It is disabled while something plays: the worker runs one inference at a time, so a preview would queue behind the current sentence and arrive after you had stopped caring.
 
 **A favourite voice** exists because the chosen voice always persisted, which meant the last voice you tried silently became your default — so auditioning one cost you your preference. The star records a voice *and* its engine, and `favouritePatch()` is applied once per document rather than on every `play()`, so changing voice mid-article still works and still lasts the session. It just no longer decides what the next article starts with. With nothing starred, the old last-used behaviour is unchanged.
 

@@ -5,9 +5,11 @@ import { createSystemEngine } from './system-engine.js';
 import { createNeuralEngine } from './neural-engine.js';
 import { createHybridEngine } from './hybrid-engine.js';
 import { NEURAL_VOICES, DEFAULT_SETTINGS, favouritePatch } from './voices.js';
+import * as queue from './queue.js';
 
-const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/tab-mark.js', 'src/doc/session.js',
-                      'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
+const EXTRACT_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/reader/extract.js'];
+const READER_FILES = [...EXTRACT_FILES, 'src/doc/tab-mark.js', 'src/doc/session.js',
+                      'src/reader/view.js', 'src/reader/reader.js'];
 
 // One reading session, any number of clients watching it: the reader overlay in a page, and the
 // side panel, which outlives the page it started from. The session belongs to the document being
@@ -81,6 +83,7 @@ chrome.runtime.onInstalled.addListener(({ reason }) => {
     // On the toolbar icon, because it is about no page in particular.
     chrome.contextMenus.create({ id: 'voxly-open-file', title: 'Read a PDF or EPUB with Voxly\u2026', contexts: ['action'] });
     chrome.contextMenus.create({ id: 'voxly-open-panel', title: 'Open the Voxly player', contexts: ['action'] });
+    chrome.contextMenus.create({ id: 'voxly-queue', title: 'Listen to this later', contexts: ['page', 'selection'] });
   });
 });
 
@@ -88,7 +91,8 @@ const openViewer = () => chrome.tabs.create({ url: chrome.runtime.getURL(VIEWER)
 
 chrome.action.onClicked.addListener((tab) => openReader(tab));
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'voxly-open-file') openViewer();
+  if (info.menuItemId === 'voxly-queue') queuePage(tab);
+  else if (info.menuItemId === 'voxly-open-file') openViewer();
   // sidePanel.open needs a user gesture; a context-menu click is one.
   else if (info.menuItemId === 'voxly-open-panel') chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
   else openReader(tab);
@@ -109,6 +113,36 @@ async function openReader(tab) {
       badgeUnreadable(tab.id);
     }
   }
+}
+
+/**
+ * Extract this page now and keep the text. We cannot fetch it later — that would need permission
+ * to read every site — so the only moment the text is available is while the click that asked
+ * for it still grants activeTab.
+ */
+async function queuePage(tab) {
+  if (!tab?.id) return;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: EXTRACT_FILES });
+    const [{ result: doc } = {}] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => (globalThis.VX?.extract ? globalThis.VX.extract() : null)
+    });
+    if (!doc?.sentences?.length) return badgeUnreadable(tab.id, 'Voxly found no text to add');
+    const entry = await queue.add(doc, tab.url);
+    broadcastQueue();
+    chrome.action.setBadgeText({ tabId: tab.id, text: '+' }).catch(() => {});
+    chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#2F6B4F' }).catch(() => {});
+    chrome.action.setTitle({ tabId: tab.id, title: `Added "${entry.title}" to the Voxly player` }).catch(() => {});
+    setTimeout(() => chrome.action.setBadgeText({ tabId: tab.id, text: '' }).catch(() => {}), 2500);
+  } catch (e) {
+    badgeUnreadable(tab.id, "Voxly can't add this page");
+  }
+}
+
+async function broadcastQueue() {
+  const items = queue.summarise(await queue.list());
+  for (const port of clients) post(port, { type: 'queue', items });
 }
 
 // Flash '!' on the toolbar icon. This is the only feedback channel we have when there is no
@@ -178,7 +212,8 @@ function adopt(msg, port) {
 async function handle(msg, port) {
   // Only a client holding a document may replace what is being read.
   if ((msg.type === 'play' || msg.type === 'load') && msg.sentences) adopt(msg, port);
-  if (!session && msg.type !== 'hello' && msg.type !== 'ping') return;
+  const SESSIONLESS = ['hello', 'ping', 'preview', 'queue', 'queue-remove', 'queue-clear', 'queue-play'];
+  if (!session && !SESSIONLESS.includes(msg.type)) return;
 
   switch (msg.type) {
     case 'ping': break; // heartbeat from a client; receiving it keeps this worker alive
@@ -191,7 +226,8 @@ async function handle(msg, port) {
         systemVoices: rankVoices(voices, msg.lang),
         neuralVoices: NEURAL_VOICES,
         pageLanguage: msg.lang ? { tag: langBase(msg.lang), name: langName(msg.lang) } : null,
-        snapshot: snapshot()
+        snapshot: snapshot(),
+        queue: queue.summarise(await queue.list())
       });
       break;
     }
@@ -226,6 +262,17 @@ async function handle(msg, port) {
       break;
     }
     case 'preview': await preview(msg.voice); break;
+    case 'queue': await broadcastQueue(); break;
+    case 'queue-remove': await queue.remove(msg.id); await broadcastQueue(); break;
+    case 'queue-clear': await queue.clear(); await broadcastQueue(); break;
+    case 'queue-play': {
+      const item = await queue.get(msg.id);
+      if (!item) { await broadcastQueue(); break; }
+      // Playing from the queue makes the panel the document's owner: there is no page involved.
+      adopt({ title: item.title, sentences: item.sentences, blockStarts: item.blockStarts, index: 0 }, port);
+      await play(0);
+      break;
+    }
     case 'close': clientGone(port); break;  // this client is leaving, not necessarily the session
     case 'stop': endSession(); break;       // the panel's stop button: really stop
   }
