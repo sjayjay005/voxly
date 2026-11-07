@@ -104,6 +104,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   else if (msg.op === 'at') current.at = msg.index;        // where the system voice has reached
   else if (msg.op === 'begin') begin(msg.from);
   else if (msg.op === 'rate') setRate(msg.speed);
+  else if (msg.op === 'extend') extendSession(msg.sentences, msg.blockStarts);
   else if (msg.op === 'pause') pause();
   else if (msg.op === 'resume') resume();
   else if (msg.op === 'stop') stop();
@@ -291,6 +292,33 @@ function begin(from) {
   s.need = 0;
   s.timelineEnd = 0;
   flush(s);
+}
+
+/**
+ * The document is still being extracted and just got longer. Append the new sentences, adopt any
+ * audio already cached for them, and let the generator run on — the loop re-reads s.genNext, so
+ * it simply continues rather than having to be restarted.
+ */
+async function extendSession(sentences, blockStarts) {
+  const s = current;
+  if (!s || !sentences || sentences.length <= s.sentences.length) return;
+  const from = s.sentences.length;
+  const added = sentences.slice(from);
+  const keys = await Promise.all(added.map((t) => AudioCache.key(s.voice, s.speed, t)));
+  if (current !== s) return;
+  s.sentences = sentences;
+  if (blockStarts) s.blockStarts = blockStarts;
+  s.keys = s.keys.concat(keys);
+  try {
+    const known = await cache.lookup(keys);
+    keys.forEach((k, i) => {
+      const dur = known.get(k);
+      if (dur != null) offer(s, from + i, { key: k, speed: s.speed, dur });
+    });
+  } catch {}
+  if (current !== s) return;
+  generate(s);
+  if (s.prime) checkReady(s); else flush(s);
 }
 
 // ---- speed changes ----

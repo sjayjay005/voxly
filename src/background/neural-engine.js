@@ -64,6 +64,8 @@ export function createNeuralEngine(emit) {
     begin(from) { send('begin', { from }); },
     /** A speed change: keep playing and re-generate in the background, never start over. */
     rate(speed) { send('rate', { speed: Number(speed) || 1 }); },
+    /** The document grew: generate into the new sentences rather than stopping at the old end. */
+    extend(sentences, blockStarts) { send('extend', { sentences, blockStarts }); },
     pause() { send('pause'); },
     resume() { send('resume'); },
     stop() { send('stop'); sid++; },
