@@ -14,6 +14,12 @@ const nm = (p) => at('node_modules/' + p);
 copyFileSync(nm('@mozilla/readability/Readability.js'), at('lib/Readability.js'));
 copyFileSync(nm('@mozilla/readability/LICENSE.md'), at('lib/Readability-LICENSE.md'));
 
+// pdf.js, for the PDF reader: the minified ES module build and its worker. No cmaps and no
+// standard font data, because we extract text and never render a page.
+copyFileSync(nm('pdfjs-dist/build/pdf.min.mjs'), at('lib/pdf.mjs'));
+copyFileSync(nm('pdfjs-dist/build/pdf.worker.min.mjs'), at('lib/pdf.worker.mjs'));
+copyFileSync(nm('pdfjs-dist/LICENSE'), at('lib/pdfjs-LICENSE'));
+
 await build({
   entryPoints: [at('scripts/kokoro-worker.src.js')],
   outfile: at('src/offscreen/kokoro-worker.js'),
@@ -32,6 +38,13 @@ for (const f of ['ort-wasm-simd-threaded.jsep.mjs', 'ort-wasm-simd-threaded.jsep
   copyFileSync(nm('@huggingface/transformers/dist/' + f), at('ort/' + f));
 const ortWeb = existsSync(nm('onnxruntime-web/dist')) ? nm('onnxruntime-web/dist') : nm('@huggingface/transformers/node_modules/onnxruntime-web/dist');
 for (const f of ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm']) copyFileSync(join(ortWeb, f), at('ort/' + f));
+// Everything we vendor must be self-contained: the Chrome Web Store forbids loading code
+// remotely, and our CSP would block it. pdf.js is the one here that could plausibly reach out.
+for (const f of ['lib/pdf.mjs', 'lib/pdf.worker.mjs']) {
+  const found = readFileSync(at(f), 'utf8').match(/https?:\/\/[^"'`\s]*(?:cdn|unpkg|jsdelivr)[^"'`\s]{0,60}/gi);
+  if (found) throw new Error(`${f} references remote code: ${[...new Set(found)].slice(0, 3).join(', ')}`);
+}
+
 console.log('✓ vendored files rebuilt');
 
 if (process.argv.includes('--zip')) {

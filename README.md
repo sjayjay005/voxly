@@ -4,6 +4,7 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 
 - Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
 - Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed, **Esc** closes.
+- **PDFs too.** Right-click the Voxly icon and choose *Read a PDF with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
 - **Natural voice** switches from your computer's built-in voices to Kokoro, an open neural voice that runs entirely on your machine. It starts speaking immediately in your system voice and changes over once Kokoro is ready, so a slow computer never leaves you waiting.
 
 [Privacy policy](https://sjayjay005.github.io/voxly/privacy.html)
@@ -12,10 +13,16 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 
 ```
 src/
-  reader/            content scripts, injected only when you open the reader
-    extract.js       page → { title, blocks, sentences } via Readability; sentences are the unit of everything
+  doc/               the document model and the reading session, shared by every source
+    model.js         text → { title, blocks, sentences, blockStarts }; sentences are the unit of everything
+    session.js       one reading session: the view, one Port, reconnection, the word clock
+  reader/            content scripts, injected only when you open the reader on a page
+    extract.js       the page → blocks, via Readability
     view.js          the reader UI (shadow DOM): text, one moving highlight marker, control dock
-    reader.js        controller: wires the view to the service worker over a single Port
+    reader.js        toggles the reader on the current page
+  viewer/            the file reader, an extension page
+    viewer.html/js   drop a PDF; pdf.js extracts text, never renders a page
+    pdf-layout.js    positioned text runs → paragraphs, inferred from the geometry
   background/        service worker (ES modules)
     main.js          opens the reader, owns the one reading session, routes events
     system-engine.js chrome.tts — every sentence queued up front, so no gaps
@@ -27,12 +34,17 @@ src/
     pacing.js        the buffering arithmetic, on its own so it can be tested
     audio-cache.js   generated audio in IndexedDB, 16-bit PCM, oldest evicted
     kokoro-worker.js bundled Kokoro + ONNX runtime (built, don't edit)
-test/                node --test over pacing.js
+test/                node --test over the pacing, model and PDF-layout logic
 lib/Readability.js   vendored from @mozilla/readability (built)
+lib/pdf*.mjs         vendored from pdfjs-dist (built)
 ort/                 ONNX WebAssembly runtime (built)
 ```
 
 **Natural voice playback** works like a video player with a download manager. A generator synthesizes the whole article in order and saves each sentence to a local audio cache (IndexedDB, 16-bit PCM, ~200 MB cap, least-recently-played evicted), so replays and resumes start instantly. The player measures how fast this computer synthesizes speech (and remembers it), buffers enough audio up front that playback won't overtake generation — never asking you to wait more than ~45s — plays sentences back-to-back on one audio timeline, keeps only ~30s decoded in memory, and frees each sentence's audio once it has played. On a machine too slow to keep up, it offers to switch to the standard voice. If generation ever falls behind it shows *Buffering* rather than stuttering. A minute after you stop, the offscreen document closes so the model's memory is released.
+
+**Reading a PDF.** A PDF has no paragraphs — only glyphs at coordinates — so `pdf-layout.js` infers the structure from geometry: it groups text runs into lines, then starts a new paragraph on a wide vertical gap, an indent, or a short line that ends in a full stop. Lines that repeat in the same place on most pages are running heads and get dropped, as do page numbers; end-of-line hyphenation is undone when lines are joined. A line noticeably taller than the body text becomes a heading. From there it is the same model a web page produces, so the reader, the voices and the word highlighting are unchanged.
+
+Two limits worth knowing: a scanned PDF has no text to extract (there is no OCR), and CJK text needs character maps that aren't vendored. Chrome also blocks extensions from running on its own PDF viewer, and reaching a PDF's bytes would need host permissions on every site — so Voxly asks you to open your copy of the file instead.
 
 **On a machine slower than realtime** the natural voice used to make you wait up to 45 seconds, then offer to turn itself off. Four things replace that:
 
