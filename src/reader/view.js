@@ -16,7 +16,7 @@
     close: '<path d="M6.7 5.3 12 10.6l5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3z"/>'
   };
   const svg = (name, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
-  const SPEEDS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+  const SPEEDS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
   const fmtSpeed = (r) => (Number.isInteger(r) ? r.toFixed(1) : String(+r.toFixed(2))) + '×';
 
   const CSS = `
@@ -26,15 +26,33 @@
     --paper: #F5F6F2; --ink: #1E2230; --muted: #6A6F7E; --rule: #E2E4DD;
     --marker: #FFE45C; --sentence: rgba(255, 228, 92, .26);
     --dock: #1E2230; --dock-ink: #F5F6F2; --dock-muted: #A9ADBA; --brand: #5B3DF5; --brand-ink: #fff;
+    /* Typography the reader can change. --size scales the column; --measure is its width. */
+    --size: 21px; --measure: 34em;
+    --face: Charter, "Bitstream Charter", "Iowan Old Style", "Sitka Text", Cambria, Georgia, serif;
     position: fixed; inset: 0; z-index: 2147483647; background: var(--paper); color: var(--ink);
-    font: 400 21px/1.68 Charter, "Bitstream Charter", "Iowan Old Style", "Sitka Text", Cambria, Georgia, serif;
+    font: 400 var(--size)/1.68 var(--face);
     -webkit-font-smoothing: antialiased; animation: open .28s cubic-bezier(.2,.8,.2,1) both;
   }
+  /* "Auto" follows the browser; an explicit choice has to win over it, hence the :not(). */
   @media (prefers-color-scheme: dark) {
-    .root { --paper: #16171B; --ink: #E6E5DF; --muted: #8E919B; --rule: #2A2C33;
+    .root:not([data-theme="light"]):not([data-theme="sepia"]) {
+            --paper: #16171B; --ink: #E6E5DF; --muted: #8E919B; --rule: #2A2C33;
             --marker: rgba(233, 201, 58, .42); --sentence: rgba(233, 201, 58, .12);
             --dock: #24262D; --dock-ink: #ECEBE6; --dock-muted: #9EA1AB; --brand: #8C74FF; }
   }
+  .root[data-theme="dark"] {
+    --paper: #16171B; --ink: #E6E5DF; --muted: #8E919B; --rule: #2A2C33;
+    --marker: rgba(233, 201, 58, .42); --sentence: rgba(233, 201, 58, .12);
+    --dock: #24262D; --dock-ink: #ECEBE6; --dock-muted: #9EA1AB; --brand: #8C74FF;
+  }
+  .root[data-theme="sepia"] {
+    --paper: #F3EADA; --ink: #3A2F22; --muted: #7A6A55; --rule: #E0D2BC;
+    --marker: #F2CE63; --sentence: rgba(196, 150, 56, .20);
+    --dock: #3A2F22; --dock-ink: #F3EADA; --dock-muted: #BCAB92; --brand: #8A5A2B; --brand-ink: #fff;
+  }
+  /* Verdana is the fallback because it is everywhere and more legible than a default sans. */
+  .root[data-font="sans"] { --face: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .root[data-font="dyslexic"] { --face: OpenDyslexic, "Atkinson Hyperlegible", Verdana, sans-serif; }
   .root:focus { outline: none; }
   .root.closing { animation: shut .18s ease-in both; }
   @keyframes open { from { opacity: 0; transform: translateY(12px); } }
@@ -49,7 +67,7 @@
   .close svg { width: 16px; height: 16px; fill: currentColor; }
   .close kbd { font: inherit; font-size: 11px; padding: 2px 5px; border: 1px solid var(--rule); border-radius: 4px; }
 
-  .column { position: relative; max-width: 34em; margin: 0 auto; padding: 28px 24px 200px; }
+  .column { position: relative; max-width: var(--measure); margin: 0 auto; padding: 28px 24px 200px; }
   .column > :not(.marker) { position: relative; z-index: 1; }
   h1.title { font-size: 1.9em; line-height: 1.15; font-weight: 700; letter-spacing: -.015em; margin: 0 0 .25em; text-wrap: balance; }
   .meta { font: 400 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--muted); margin: 0 0 2.2em; }
@@ -110,6 +128,25 @@
   .left { font-variant-numeric: tabular-nums; }
 
   .settings { display: flex; align-items: center; gap: 10px; }
+  .look { width: 34px; height: 30px; border-radius: 10px; background: rgba(255,255,255,.07); color: var(--dock-muted);
+          font: 600 15px/1 system-ui, sans-serif; } .look:hover { color: var(--dock-ink); }
+  .look[aria-expanded="true"] { color: var(--dock-ink); background: rgba(255,255,255,.16); }
+  .sheet { position: absolute; right: 14px; bottom: calc(100% + 10px); width: 268px; padding: 14px;
+           border-radius: 14px; background: var(--dock); color: var(--dock-ink); box-shadow: 0 12px 34px rgba(0,0,0,.34);
+           font: 400 13px/1.4 system-ui, -apple-system, sans-serif; display: none; }
+  .sheet.on { display: block; }
+  .sheet h3 { font: 600 11px/1 system-ui, sans-serif; letter-spacing: .08em; text-transform: uppercase;
+              color: var(--dock-muted); margin: 0 0 7px; }
+  .sheet .grp { display: flex; gap: 6px; margin-bottom: 13px; }
+  .sheet .grp:last-child { margin-bottom: 0; }
+  .sheet .grp button { flex: 1; padding: 8px 4px; border-radius: 9px; background: rgba(255,255,255,.07);
+                       color: var(--dock-muted); font: 500 13px/1 inherit; }
+  .sheet .grp button:hover { color: var(--dock-ink); }
+  .sheet .grp button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); }
+  .sheet .grp button[data-font="serif"] { font-family: Charter, Georgia, serif; }
+  .sheet .grp button[data-font="dyslexic"] { font-family: OpenDyslexic, "Atkinson Hyperlegible", Verdana, sans-serif; }
+  /* Announcements for a screen reader; the visible status line changes too often to be live. */
+  .announce { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .speed { display: inline-flex; align-items: center; border-radius: 10px; background: rgba(255,255,255,.07); }
   .speed button { width: 26px; height: 30px; color: var(--dock-muted); font-size: 16px; } .speed button:hover { color: var(--dock-ink); }
   .speed output { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
@@ -152,12 +189,13 @@
     const listenTime = () => `${Math.max(1, Math.round(totalChars / 14.5 / 60))} minute listen`;
 
     shadow.innerHTML = `<style>${CSS}</style>
-      <div class="root" data-state="buffering" role="dialog" aria-label="Voxly reader" tabindex="-1">
+      <div class="root" data-state="buffering" role="dialog" aria-modal="true" aria-label="Voxly reader" tabindex="-1">
         <div class="scroller">
           <div class="top"><span class="site"></span><button class="close" title="Close reader">${svg('close')}<kbd>Esc</kbd></button></div>
           <article class="column"><div class="marker"></div></article>
         </div>
         <button class="back">Back to where it's reading</button>
+        <p class="announce" role="status" aria-live="polite"></p>
         <div class="hint" role="status"><span class="hint-text"></span><button class="hint-act"></button><button class="x" title="Dismiss">✕</button></div>
         <div class="dock">
           <div class="transport">
@@ -174,6 +212,25 @@
             <div class="switch" role="switch" tabindex="0" aria-checked="false" title="Natural voice runs on your computer. First use downloads it once (about 90 MB).">
               <span class="knob"></span><span>Natural voice</span></div>
             <select class="voice" title="Voice"></select>
+            <button class="look" aria-expanded="false" aria-haspopup="true" title="Text and colours">Aa</button>
+          </div>
+          <div class="sheet" role="group" aria-label="Text and colours">
+            <h3>Colours</h3>
+            <div class="grp">${['auto', 'light', 'sepia', 'dark'].map((v) => `<button data-theme="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</div>
+            <h3>Typeface</h3>
+            <div class="grp">
+              <button data-font="serif">Serif</button>
+              <button data-font="sans">Sans</button>
+              <button data-font="dyslexic" title="Uses OpenDyslexic or Atkinson Hyperlegible if you have either installed, otherwise Verdana">Dyslexic</button>
+            </div>
+            <h3>Text size</h3>
+            <div class="grp">${[17, 19, 21, 24, 28].map((v) => `<button data-size="${v}" style="font-size:${Math.round(v * 0.62)}px">Aa</button>`).join('')}</div>
+            <h3>Column width</h3>
+            <div class="grp">
+              <button data-measure="28em">Narrow</button>
+              <button data-measure="34em">Normal</button>
+              <button data-measure="42em">Wide</button>
+            </div>
           </div>
         </div>
       </div>`;
@@ -181,7 +238,8 @@
     const $ = (s) => shadow.querySelector(s);
     const el = { ring: $('.ring'), rp: $('.ring .rp'), root: $('.root'), scroller: $('.scroller'), column: $('.column'), marker: $('.marker'), back: $('.back'),
                  fill: $('.fill'), buffer: $('.buffer'), track: $('.track'), status: $('.status'), left: $('.left'),
-                 speed: $('.speed output'), sw: $('.switch'), voice: $('.voice') };
+                 speed: $('.speed output'), sw: $('.switch'), voice: $('.voice'),
+                 look: $('.look'), sheet: $('.sheet'), announce: $('.announce') };
     $('.site').textContent = doc.site;
 
     // ---- article ----
@@ -280,6 +338,70 @@
       act.seek(i);
     });
 
+    // ---- how it looks ----
+    // Each group is a set of buttons carrying the setting in a data attribute, so one handler
+    // covers colours, typeface, size and width, and adding a group needs no new code.
+    const LOOK = ['theme', 'font', 'size', 'measure'];
+    const openSheet = (on) => {
+      el.sheet.classList.toggle('on', on);
+      el.look.setAttribute('aria-expanded', String(on));
+    };
+    el.look.addEventListener('click', () => openSheet(!el.sheet.classList.contains('on')));
+    el.sheet.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      for (const key of LOOK) {
+        if (b.dataset[key] == null) continue;
+        act.settings({ [key]: key === 'size' ? Number(b.dataset[key]) : b.dataset[key] });
+      }
+    });
+
+    /** Paint the current choices onto the root and mark the chosen buttons. */
+    function applyLook(s) {
+      const theme = s.theme || 'auto';
+      const font = s.font || 'serif';
+      const size = Number(s.size) || 21;
+      const measure = s.measure || '34em';
+      if (theme === 'auto') el.root.removeAttribute('data-theme');
+      else el.root.dataset.theme = theme;
+      if (font === 'serif') el.root.removeAttribute('data-font');
+      else el.root.dataset.font = font;
+      el.root.style.setProperty('--size', size + 'px');
+      el.root.style.setProperty('--measure', measure);
+      const chosen = { theme, font, size: String(size), measure };
+      for (const b of el.sheet.querySelectorAll('button')) {
+        for (const key of LOOK) {
+          if (b.dataset[key] == null) continue;
+          b.setAttribute('aria-pressed', String(b.dataset[key] === chosen[key]));
+        }
+      }
+    }
+
+    // ---- accessibility ----
+    // The reader is a modal layer over the page, so keyboard focus must not escape into the
+    // document behind it, which is still there and still focusable.
+    const FOCUSABLE = 'button, select, [tabindex]:not([tabindex="-1"])';
+    function trapFocus(e) {
+      if (e.key !== 'Tab') return;
+      const items = [...shadow.querySelectorAll(FOCUSABLE)].filter((n) => n.offsetParent !== null || n === el.root);
+      if (!items.length) return;
+      const first = items[0], last = items[items.length - 1];
+      const here = shadow.activeElement;
+      if (e.shiftKey && (here === first || here === el.root)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && here === last) { e.preventDefault(); first.focus(); }
+    }
+
+    // The visible status line changes on every sentence, which would make a live region
+    // unbearable. Announce only the things worth interrupting for.
+    const SPOKEN = { playing: 'Playing', paused: 'Paused', ended: 'Finished', buffering: 'Getting ready', idle: 'Stopped' };
+    let announced = null;
+    function announce(next, detail) {
+      const text = next === 'error' ? (detail || 'Something went wrong') : SPOKEN[next];
+      if (!text || text === announced) return;
+      announced = text;
+      el.announce.textContent = text;
+    }
+
     function stepSpeed(dir) {
       let i = SPEEDS.findIndex((s) => s >= rate - 0.001);
       if (i < 0) i = SPEEDS.length - 1;
@@ -291,7 +413,9 @@
       if (e.target !== host && !e.composedPath().includes(host) && e.key !== 'Escape') return;
       const inSelect = e.composedPath()[0]?.tagName === 'SELECT';
       let handled = true;
-      if (e.key === 'Escape') act.close();
+      if (e.key === 'Tab') { trapFocus(e); return; }
+      if (e.key === 'Escape' && el.sheet.classList.contains('on')) { openSheet(false); el.look.focus(); }
+      else if (e.key === 'Escape') act.close();
       else if (inSelect) handled = false;
       else if (e.key === ' ' || e.key === 'k') act.toggle();
       else if (e.key === 'ArrowRight') act.seek(active + 1);
@@ -315,6 +439,7 @@
     return {
       setSettings(s, voices) {
         settings = s;
+        applyLook(s);
         rate = Number(s.rate) || 1;
         el.speed.textContent = fmtSpeed(rate);
         el.sw.setAttribute('aria-checked', String(!!s.natural));
@@ -329,6 +454,7 @@
       setState(next, detail = '', progress = null) {
         state = next;
         el.root.dataset.state = next;
+        announce(next, detail);
         // "Preparing natural voice — about 40s": the wait goes in the right-hand slot so it never gets truncated.
         const [label, eta] = next === 'buffering' ? (detail || 'Getting ready').split(' — ') : [];
         el.left.textContent = next === 'buffering' ? (eta || '').replace(/^about /, '~') : timeLeft();
