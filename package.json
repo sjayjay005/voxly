@@ -3,7 +3,7 @@
   "version": "2.2.0",
   "private": true,
   "license": "MIT",
-  "description": "Voxly \u2013 free read-aloud Chrome extension. Runtime dependencies are vendored into the extension by `npm run build`.",
+  "description": "Voxly – free read-aloud Chrome extension. Runtime dependencies are vendored into the extension by `npm run build`.",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -14,7 +14,9 @@
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
     "@mozilla/readability": "^0.6.0",
-    "kokoro-js": "^1.2.1"
+    "fflate": "^0.8.3",
+    "kokoro-js": "^1.2.1",
+    "pdfjs-dist": "^6.5.438"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
