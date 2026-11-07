@@ -86,6 +86,8 @@
         case 'settings': view.setSettings(m.settings); break;
         case 'state':
           view.setState(m.state, m.detail, m.progress);
+          // Let the tab strip show where the voice is coming from.
+          VX.tabMark?.set(m.state);
           if (m.state === 'paused') pauseClock();
           else if (m.state === 'playing') resumeClock();
           else stopClock();
@@ -142,6 +144,7 @@
       clearInterval(s.heartbeat);
       clearTimeout(s.helloTimer);
       stopClock();
+      VX.tabMark?.restore();
       try { send('close'); s.port.disconnect(); } catch {}
       s.view.destroy();
       onClosed?.();

@@ -7,9 +7,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 globalThis.VX = {};
-for (const f of ['src/doc/model.js', 'src/viewer/pdf-layout.js']) new Function(readFileSync(f, 'utf8'))();
+// tab-mark.js touches document/MutationObserver at call time, not load time, so loading it here
+// is safe; only its pure title helper is exercised.
+globalThis.document = { title: '', querySelector: () => null, head: null };
+for (const f of ['src/doc/model.js', 'src/viewer/pdf-layout.js', 'src/doc/tab-mark.js']) new Function(readFileSync(f, 'utf8'))();
 const { splitSentences, buildModel, clean, isNoise, MAX_SENTENCE } = globalThis.VX.model;
 const { blocksFromPages, linesOf, isPageNumber, join } = globalThis.VX.pdfLayout;
+const { markedTitle, strip, ICON } = globalThis.VX.tabMark;
 
 // ---------------------------------------------------------------- model
 
@@ -180,4 +184,38 @@ test('a PDF feeds the same model the web reader uses', () => {
   const doc = buildModel({ title: 'report', site: 'PDF', blocks });
   assert.deepEqual(doc.sentences, ['report', 'A sentence from a PDF.', 'And a second one.']);
   assert.deepEqual(doc.blockStarts, [0, 1]);
+});
+
+// ---------------------------------------------------------------- tab mark
+
+test('markedTitle prefixes a glyph only while there is something to show', () => {
+  assert.equal(markedTitle('An Article', 'playing'), '\u25B6 An Article');
+  assert.equal(markedTitle('An Article', 'paused'), '\u23F8 An Article');
+  assert.equal(markedTitle('An Article', 'buffering'), '\u25B6 An Article');
+});
+
+test('markedTitle leaves the title alone when reading has stopped', () => {
+  for (const state of ['idle', 'ended', 'error', undefined]) {
+    assert.equal(markedTitle('An Article', state), 'An Article', `state ${state} should not mark`);
+  }
+});
+
+test('markedTitle does not stack glyphs when called twice', () => {
+  const once = markedTitle('An Article', 'playing');
+  // set() always marks the remembered original, never the current title.
+  assert.equal(markedTitle('An Article', 'playing'), once);
+  assert.ok(!markedTitle('An Article', 'playing').startsWith('\u25B6 \u25B6'));
+});
+
+test('the tab icon is a self-contained data URI', () => {
+  assert.ok(ICON.startsWith('data:image/svg+xml,'), 'must not fetch anything');
+  assert.ok(!/https?:/.test(ICON));
+});
+
+test('strip removes our glyph so a title is never marked twice', () => {
+  assert.equal(strip('\u25B6 An Article'), 'An Article');
+  assert.equal(strip('\u23F8 An Article'), 'An Article');
+  assert.equal(strip('An Article'), 'An Article');
+  // Round-tripping is what keeps an SPA's title changes clean.
+  assert.equal(markedTitle(strip(markedTitle('An Article', 'playing')), 'playing'), '\u25B6 An Article');
 });

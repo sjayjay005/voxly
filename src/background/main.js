@@ -6,7 +6,7 @@ import { createNeuralEngine } from './neural-engine.js';
 import { createHybridEngine } from './hybrid-engine.js';
 import { NEURAL_VOICES, DEFAULT_SETTINGS } from './voices.js';
 
-const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/session.js',
+const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/tab-mark.js', 'src/doc/session.js',
                       'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
 
 /** @type {{port: chrome.runtime.Port, sentences: string[], blockStarts: number[], index: number, state: string, engine: object} | null} */
@@ -15,9 +15,19 @@ let session = null;
 const emit = (type, data) => {
   if (!session) return;
   if (type === 'sentence') session.index = data.index;
-  if (type === 'state') session.state = data.state;
+  if (type === 'state') { session.state = data.state; markTab(session, data.state); }
   try { session.port.postMessage({ type, ...data }); } catch {}
 };
+
+// The tab strip gets its mark from the content script (see src/doc/tab-mark.js). The toolbar
+// icon is ours, so mark that too — it is what you see when you come back to the tab.
+const BADGE = { playing: '\u25B6', buffering: '\u25CF', paused: '\u23F8' };
+function markTab(s, state) {
+  if (s.tabId == null) return;
+  const text = BADGE[state] || '';
+  chrome.action.setBadgeText({ tabId: s.tabId, text }).catch(() => {});
+  if (text) chrome.action.setBadgeBackgroundColor({ tabId: s.tabId, color: '#5B3DF5' }).catch(() => {});
+}
 
 // The hybrid engine needs to know which engine an event came from — it follows the system
 // voice's progress while the natural one generates. Everything still reaches the reader.
@@ -76,6 +86,7 @@ async function openReader(tab) {
 function badgeUnreadable(tabId, title = "Voxly can't read this page") {
   if (tabId == null) return;
   chrome.action.setBadgeText({ tabId, text: '!' });
+  chrome.action.setBadgeBackgroundColor({ tabId, color: '#8A5E12' }).catch(() => {});
   chrome.action.setTitle({ tabId, title });
   setTimeout(() => chrome.action.setBadgeText({ tabId, text: '' }), 3000);
 }
@@ -89,7 +100,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'voxly-reader') return;
   endSession(); // one reader at a time
-  session = { port, sentences: [], blockStarts: [], index: 0, state: 'idle', engine: null };
+  session = {
+    port, sentences: [], blockStarts: [], index: 0, state: 'idle', engine: null,
+    // Not set for the file reader, which is an extension page rather than a tab we injected into.
+    tabId: port.sender?.tab?.id ?? null
+  };
   const mine = session;
   port.onMessage.addListener((msg) => { if (session === mine) handle(msg); });
   port.onDisconnect.addListener(() => { if (session === mine) endSession(); });
@@ -167,6 +182,7 @@ async function play(index) {
 
 function endSession() {
   if (!session) return;
+  markTab(session, 'idle');
   for (const e of Object.values(engines)) e.stop();
   try { session.port.disconnect(); } catch {}
   session = null;

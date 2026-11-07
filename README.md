@@ -5,6 +5,7 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 - Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
 - Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed, **Esc** closes.
 - **PDFs too.** Right-click the Voxly icon and choose *Read a PDF with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
+- **The reading tab is marked.** While Voxly reads, that tab shows ▶ in front of its title and takes Voxly's icon, so you can find it from anywhere in the tab strip. Both go back to normal when you close the reader.
 - **Natural voice** switches from your computer's built-in voices to Kokoro, an open neural voice that runs entirely on your machine. It starts speaking immediately in your system voice and changes over once Kokoro is ready, so a slow computer never leaves you waiting.
 
 [Privacy policy](https://sjayjay005.github.io/voxly/privacy.html)
@@ -16,6 +17,7 @@ src/
   doc/               the document model and the reading session, shared by every source
     model.js         text → { title, blocks, sentences, blockStarts }; sentences are the unit of everything
     session.js       one reading session: the view, one Port, reconnection, the word clock
+    tab-mark.js      marks the reading tab in the tab strip, and puts it back afterwards
   reader/            content scripts, injected only when you open the reader on a page
     extract.js       the page → blocks, via Readability
     view.js          the reader UI (shadow DOM): text, one moving highlight marker, control dock
@@ -41,6 +43,8 @@ ort/                 ONNX WebAssembly runtime (built)
 ```
 
 **Natural voice playback** works like a video player with a download manager. A generator synthesizes the whole article in order and saves each sentence to a local audio cache (IndexedDB, 16-bit PCM, ~200 MB cap, least-recently-played evicted), so replays and resumes start instantly. The player measures how fast this computer synthesizes speech (and remembers it), buffers enough audio up front that playback won't overtake generation — never asking you to wait more than ~45s — plays sentences back-to-back on one audio timeline, keeps only ~30s decoded in memory, and frees each sentence's audio once it has played. On a machine too slow to keep up, it offers to switch to the standard voice. If generation ever falls behind it shows *Buffering* rather than stuttering. A minute after you stop, the offscreen document closes so the model's memory is released.
+
+**Finding the tab that's reading.** Chrome's own speaker icon never appears for Voxly, because the audio comes from the offscreen document or from `chrome.tts` rather than from the tab — so a tab that is reading looks identical to one that isn't. The tab strip only exposes two things a page can set, its title and its favicon, so Voxly borrows both while reading and restores them on close. The title is the dependable one; a favicon from a `data:` URI can be refused by a strict page CSP, so it is best-effort. If the page rewrites its own title while reading (a single-page app navigating), the new title is adopted and re-marked rather than being forced back. The toolbar icon gets a badge too, which is what you see once you return to the tab.
 
 **Reading a PDF.** A PDF has no paragraphs — only glyphs at coordinates — so `pdf-layout.js` infers the structure from geometry: it groups text runs into lines, then starts a new paragraph on a wide vertical gap, an indent, or a short line that ends in a full stop. Lines that repeat in the same place on most pages are running heads and get dropped, as do page numbers; end-of-line hyphenation is undone when lines are joined. A line noticeably taller than the body text becomes a heading. From there it is the same model a web page produces, so the reader, the voices and the word highlighting are unchanged.
 
