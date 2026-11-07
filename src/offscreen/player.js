@@ -22,10 +22,10 @@ import { AudioCache } from './audio-cache.js';
 import {
   MEM_AHEAD, MAX_PREBUFFER, SLOW_RTF, REBUFFER, SENTENCE_GAP,
   estimate, contiguousSeconds, restAvailable, prebufferNeeded, waitSeconds, fmtWait, wordTimeline,
-  handoffPoint, clauseChunks, pickThreads, idleCloseMs
+  handoffPoint, handoffLead, clauseChunks, pickThreads, idleCloseMs
 } from './pacing.js';
 
-const FAST_RTF = 1.15;      // at or above this the natural voice starts on its own, no lead-in
+const LEAD_IN_WAIT = 8;     // seconds of silence worth tolerating before leading in instead
 
 const WARM_SENTENCES = 3;   // how many opening sentences to generate clause by clause
 const WARM_CHUNK = 90;      // ...and how long each of those pieces may be, in characters
@@ -101,7 +101,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.target !== 'neural') return;
   if (msg.op === 'start') start(msg);
   else if (!current || msg.sid !== current.sid) return;
-  else if (msg.op === 'at') current.at = msg.index;        // where the system voice has reached
+  else if (msg.op === 'at') sawSystemVoice(msg.index);     // where the system voice has reached
   else if (msg.op === 'begin') begin(msg.from);
   else if (msg.op === 'rate') setRate(msg.speed);
   else if (msg.op === 'extend') extendSession(msg.sentences, msg.blockStarts);
@@ -127,7 +127,7 @@ async function start({ sid, sentences, from, voice, speed, prime = false, blockS
     have: new Map(), keys: [], dur: new Map(), avail: new Set(), fresh: new Map(),
     genNext: from, playNext: from, scheduled: [], timelineEnd: 0,
     rtf: savedRtf(), started: false, need: 0, paused: false, filling: false, ticker: null,
-    prime, at: from, announcedReady: false, generated: 0, handoff
+    prime, at: from, target: null, announcedReady: false, generated: 0, handoff
   });
   report('state', { state: 'buffering', detail: 'Preparing natural voice', progress: null });
 
@@ -139,8 +139,9 @@ async function start({ sid, sentences, from, voice, speed, prime = false, blockS
     s.announcedReady = true;
     send('ready', { from: s.from, immediate: true });
   } else if (s.prime) {
-    // Part of this article may already be cached from a previous listen, which can be enough to
-    // take over straight away. Check before generating anything.
+    // A lead-in: aim ahead of the system voice before generating a single sentence, and check
+    // whether a previous listen already left enough cached there to take over at once.
+    aim(s);
     checkReady(s);
   }
   if (!s.prime) flush(s);
@@ -148,14 +149,16 @@ async function start({ sid, sentences, from, voice, speed, prime = false, blockS
 }
 
 /**
- * Is a system-voice lead-in worth it? Only when the wait would be real: a fully cached article
- * starts instantly, and a machine comfortably faster than realtime is only a few seconds from
- * its first sentence — not worth changing voice for. Everything else, including a machine we
- * have never measured, gets the lead-in.
+ * Is a system-voice lead-in worth it? The question is not how fast the machine is but how long
+ * the listener would sit in silence, so ask that directly: a fully cached article starts at
+ * once, and a machine that can fill its buffer in a few seconds is not worth changing voice
+ * over. A machine we have never measured gets the lead-in, because we cannot promise otherwise.
  */
 function needsLeadIn(s) {
   if (restAvailable(s, s.from)) return false;
-  return s.rtf == null || s.rtf < FAST_RTF;
+  if (s.rtf == null) return true;
+  const need = prebufferNeeded(s, s.from, MAX_PREBUFFER);
+  return need === Infinity || need / s.rtf > LEAD_IN_WAIT;
 }
 
 /** Look up everything already cached at the current speed and treat it as playable. */
@@ -266,20 +269,46 @@ function measure(s, audioSeconds, elapsedMs) {
 
 // ---- prime mode: generating while the system voice reads ----
 
+/** The system voice has moved on. Keep the target ahead of it, and see if we can take over. */
+function sawSystemVoice(index) {
+  const s = current;
+  if (!s) return;
+  s.at = index;
+  if (!s.prime) return;
+  // It is closing on our target: pick a further one rather than lose the race.
+  if (s.target == null || s.at + 2 >= s.target) aim(s);
+  checkReady(s);
+}
+
 /**
- * Can we take over from the system voice yet? Measured from one past wherever it has reached,
- * using exactly the same buffer calculation as a cold start.
+ * Choose where to hand over, and point the generator at it.
+ *
+ * Generating from where the system voice already is can never catch up, so we aim a lead ahead
+ * of it — at a paragraph break if one is close, so the voice changes at a natural pause rather
+ * than mid-thought. Sentences before the target are read by the system voice alone and never
+ * generated, which is the whole point of a lead-in.
+ */
+function aim(s) {
+  const last = s.sentences.length - 1;
+  const avg = estimate(s, Math.min(s.at + 1, last));
+  const want = handoffPoint(Math.min(s.at + handoffLead(avg, s.rtf), last), s.blockStarts);
+  if (s.target != null && want <= s.target) return;
+  s.target = want;
+  // Never spend time on sentences the listener has already heard.
+  if (s.genNext < want) s.genNext = want;
+  generate(s);
+}
+
+/**
+ * Can we take over yet? Measured from the target, using the same buffer calculation as a cold
+ * start — and only if the system voice has not already passed it.
  */
 function checkReady(s) {
-  if (s.announcedReady) return;
-  // Hand over at the next paragraph break if one is close, so the voice changes at a natural
-  // pause rather than mid-thought.
-  const next = Math.min(s.at + 1, s.sentences.length - 1);
-  const from = handoffPoint(next, s.blockStarts);
-  const need = prebufferNeeded(s, from, MAX_PREBUFFER);
-  if (need === Infinity || contiguousSeconds(s, from) < need) return;
+  if (s.announcedReady || s.target == null || s.target <= s.at) return;
+  const need = prebufferNeeded(s, s.target, MAX_PREBUFFER);
+  if (need === Infinity || contiguousSeconds(s, s.target) < need) return;
   s.announcedReady = true;
-  send('ready', { from });
+  send('ready', { from: s.target });
 }
 
 /** The service worker has stopped the system voice; start playing from `from`. */
@@ -287,6 +316,7 @@ function begin(from) {
   const s = current;
   if (!s) return;
   s.prime = false;
+  s.target = null;
   s.playNext = Math.max(s.from, Math.min(from, s.sentences.length - 1));
   s.started = false;
   s.need = 0;
@@ -505,7 +535,7 @@ function stop() {
 globalThis.voxlyDebug = () => current && ({
   playNext: current.playNext, genNext: current.genNext, avail: current.avail.size,
   scheduled: current.scheduled.length, fresh: current.fresh.size, rtf: current.rtf,
-  prime: current.prime, at: current.at, speed: current.speed,
+  prime: current.prime, at: current.at, target: current.target, speed: current.speed,
   bridged: [...current.have.values()].filter((e) => e.speed !== current.speed).length,
   threads: THREADS, threadStats: threadStats(), idleCloseMs: idleCloseMs(savedLoadMs())
 });

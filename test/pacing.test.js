@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   estimate, contiguousSeconds, restAvailable, prebufferNeeded, waitSeconds, fmtWait,
-  wordTimeline, handoffPoint, pickThreads, idleCloseMs, clauseChunks,
+  wordTimeline, handoffPoint, handoffLead, pickThreads, idleCloseMs, clauseChunks,
   MAX_PREBUFFER, MAX_WAIT, CHARS_PER_SEC
 } from '../src/offscreen/pacing.js';
 
@@ -178,4 +178,49 @@ test('idleCloseMs keeps a slow-loading model in memory for longer', () => {
   assert.equal(idleCloseMs(1_000), 60_000, 'a fast load does not need longer');
   assert.equal(idleCloseMs(20_000), 300_000, 'a 20s load earns five minutes');
   assert.equal(idleCloseMs(600_000), 600_000, 'clamped at ten minutes');
+});
+
+// ---------------------------------------------------------------- handoff lead
+//
+// These encode the invariant the first version of the lead-in got wrong: it generated from where
+// the system voice already was, so the buffer could never be ready ahead of it and the natural
+// voice never arrived. The generator must aim far enough down the article that the buffer is
+// finished before the system voice gets there.
+
+test('handoffLead always aims at least a few sentences ahead', () => {
+  for (const rtf of [0.15, 0.3, 0.5, 0.8, 1]) {
+    assert.ok(handoffLead(7, rtf) >= 4, `rtf ${rtf} gave ${handoffLead(7, rtf)}`);
+  }
+});
+
+test('the system voice reaches the target no sooner than the buffer is ready', () => {
+  // The race the lead-in has to win, checked against the real buffer calculation.
+  for (const rtf of [0.15, 0.2, 0.3, 0.5, 0.7, 0.9, 1.1]) {
+    for (const dur of [3, 7, 12]) {
+      const lead = handoffLead(dur, rtf);
+      const chars = dur * CHARS_PER_SEC;
+      const s = session(Array.from({ length: 400 }, () => 'x'.repeat(chars)), {}, { rtf });
+      const need = prebufferNeeded(s, lead);
+      const wallToGenerate = need / rtf;
+      const wallForSystemVoice = lead * dur;
+      assert.ok(wallForSystemVoice >= wallToGenerate,
+        `rtf ${rtf}, ${dur}s sentences: voice arrives in ${wallForSystemVoice.toFixed(1)}s `
+        + `but the buffer needs ${wallToGenerate.toFixed(1)}s (lead ${lead})`);
+    }
+  }
+});
+
+test('a slower machine has to aim further ahead', () => {
+  assert.ok(handoffLead(7, 0.2) > handoffLead(7, 0.5), 'slower needs a longer lead');
+  assert.ok(handoffLead(7, 0.5) >= handoffLead(7, 0.9));
+});
+
+test('handoffLead assumes a slowish machine before it has measured one', () => {
+  assert.equal(handoffLead(7, null), handoffLead(7, 0.5));
+  assert.equal(handoffLead(7, 0), handoffLead(7, 0.5));
+});
+
+test('handoffLead copes with a missing sentence estimate', () => {
+  assert.ok(handoffLead(0, 0.5) >= 4);
+  assert.ok(Number.isFinite(handoffLead(undefined, 0.5)));
 });

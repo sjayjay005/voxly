@@ -89,6 +89,28 @@ export function handoffPoint(from, blockStarts = [], window = 3) {
 }
 
 /**
+ * How many sentences ahead of the system voice the generator must aim during a lead-in.
+ *
+ * The system voice keeps reading while we generate, so generating from where it already is can
+ * never catch up — that work goes on sentences the listener has heard. We have to pick a target
+ * further down the article and fill the buffer there before the voice arrives.
+ *
+ * The condition is just a race: the buffer takes `need / rtf` seconds of wall clock to make, and
+ * the system voice needs `lead * avgSeconds` to reach the target, so the lead has to cover the
+ * former. Both of prebufferNeeded's branches matter — on a merely slow machine the patience term
+ * (rtf * MAX_WAIT) dominates, but on a very slow one it is the cost of making a single sentence
+ * (avgSeconds / rtf), which grows much faster as rtf falls.
+ */
+export function handoffLead(avgSeconds, rtf) {
+  const dur = avgSeconds > 0 ? avgSeconds : 7;
+  // Not measured yet: assume a middling-slow machine rather than an optimistic one.
+  const r = rtf > 0 ? rtf : 0.5;
+  const need = Math.min(MAX_PREBUFFER, Math.max(r * MAX_WAIT, dur / r + 0.5));
+  const wall = need / r;
+  return Math.max(4, Math.ceil(wall / dur) + 2);
+}
+
+/**
  * Split a sentence at clause boundaries into pieces of at most `max` characters.
  *
  * A 240-character sentence is a single inference, so on a machine at half realtime it alone is
