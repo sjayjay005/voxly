@@ -5,6 +5,7 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 - Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
 - Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed, **Esc** closes.
 - **PDFs and EPUBs too.** Right-click the Voxly icon and choose *Read a PDF or EPUB with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
+- **It keeps reading while you browse.** Right-click the Voxly icon and choose *Open the Voxly player* for a side panel that outlives the page you started on — switch tabs or close that tab and the voice carries on, with the transport, speed and natural-voice switch in the panel.
 - **The reading tab is marked.** While Voxly reads, that tab shows ▶ in front of its title and takes Voxly's icon, so you can find it from anywhere in the tab strip. Both go back to normal when you close the reader.
 - **Natural voice** switches from your computer's built-in voices to Kokoro, an open neural voice that runs entirely on your machine. It starts speaking immediately in your system voice and changes over once Kokoro is ready, so a slow computer never leaves you waiting.
 
@@ -18,6 +19,7 @@ src/
     model.js         text → { title, blocks, sentences, blockStarts }; sentences are the unit of everything
     session.js       one reading session: the view, one Port, reconnection, the word clock
     tab-mark.js      marks the reading tab in the tab strip, and puts it back afterwards
+  panel/             the side panel: a player that outlives the page it started from
   reader/            content scripts, injected only when you open the reader on a page
     extract.js       the page → blocks, via Readability
     view.js          the reader UI (shadow DOM): text, one moving highlight marker, control dock
@@ -45,6 +47,12 @@ ort/                 ONNX WebAssembly runtime (built)
 ```
 
 **Natural voice playback** works like a video player with a download manager. A generator synthesizes the whole article in order and saves each sentence to a local audio cache (IndexedDB, 16-bit PCM, ~200 MB cap, least-recently-played evicted), so replays and resumes start instantly. The player measures how fast this computer synthesizes speech (and remembers it), buffers enough audio up front that playback won't overtake generation — never asking you to wait more than ~45s — plays sentences back-to-back on one audio timeline, keeps only ~30s decoded in memory, and frees each sentence's audio once it has played. On a machine too slow to keep up, it offers to switch to the standard voice. If generation ever falls behind it shows *Buffering* rather than stuttering. A minute after you stop, the offscreen document closes so the model's memory is released.
+
+**Reading on after you leave the page.** The reading session used to belong to whichever Port had connected, so closing the tab tore it down. It now belongs to the *document*, and any number of clients may watch it — the reader overlay in a page, and the side panel. A client going away only ends the session if nothing else is listening and the person has not asked Voxly to carry on (`background`, on by default).
+
+Two details make it actually work. Chrome stops an idle service worker after about 30 seconds, so the panel heartbeats like the reader does — but only while something is playing, since an open panel with nothing to read has no business holding the worker resident. And the panel keeps no copy of the document: the worker sends it the title, the position and the sentence being spoken, which is also why a panel opened halfway through an article can render the right state immediately.
+
+This is a side panel rather than a popup on purpose. A popup would have meant `action.default_popup`, which is mutually exclusive with `action.onClicked` — so clicking the toolbar icon would have opened a menu instead of reading the page, and one-click-to-read is the whole interaction. The side panel costs one extra permission (`sidePanel`) and no host permissions.
 
 **Finding the tab that's reading.** Chrome's own speaker icon never appears for Voxly, because the audio comes from the offscreen document or from `chrome.tts` rather than from the tab — so a tab that is reading looks identical to one that isn't. The tab strip only exposes two things a page can set, its title and its favicon, so Voxly borrows both while reading and restores them on close. The title is the dependable one; a favicon from a `data:` URI can be refused by a strict page CSP, so it is best-effort. If the page rewrites its own title while reading (a single-page app navigating), the new title is adopted and re-marked rather than being forced back. The toolbar icon gets a badge too, which is what you see once you return to the tab.
 

@@ -5,7 +5,9 @@ import { join } from 'node:path';
 const walk = (d) => readdirSync(d).flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [join(d, f)]));
 for (const f of walk('src').filter((f) => f.endsWith('.js'))) execFileSync('node', ['--check', f]);
 const m = JSON.parse(readFileSync('manifest.json', 'utf8'));
-for (const f of [m.background.service_worker, ...Object.values(m.icons)]) if (!existsSync(f)) throw new Error('missing ' + f);
+const referenced = [m.background.service_worker, ...Object.values(m.icons)];
+if (m.side_panel?.default_path) referenced.push(m.side_panel.default_path);
+for (const f of referenced) if (!existsSync(f)) throw new Error('missing ' + f);
 
 // The committed worker bundle must not reach for a CDN. build.mjs asserts this too, but this
 // check needs no node_modules, so it also catches a bad bundle that was committed by hand.

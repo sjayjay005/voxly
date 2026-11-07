@@ -9,15 +9,38 @@ import { NEURAL_VOICES, DEFAULT_SETTINGS } from './voices.js';
 const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/tab-mark.js', 'src/doc/session.js',
                       'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
 
-/** @type {{port: chrome.runtime.Port, sentences: string[], blockStarts: number[], index: number, state: string, engine: object} | null} */
+// One reading session, any number of clients watching it: the reader overlay in a page, and the
+// side panel, which outlives the page it started from. The session belongs to the document being
+// read rather than to whoever connected, so closing a tab no longer has to stop the audio.
+/** @type {Set<chrome.runtime.Port>} */
+const clients = new Set();
+
+/** @type {{sentences: string[], blockStarts: number[], index: number, state: string, engine: object, title: string, tabId: number|null, background: boolean} | null} */
 let session = null;
+
+const post = (port, msg) => { try { port.postMessage(msg); } catch {} };
 
 const emit = (type, data) => {
   if (!session) return;
   if (type === 'sentence') session.index = data.index;
   if (type === 'state') { session.state = data.state; markTab(session, data.state); }
-  try { session.port.postMessage({ type, ...data }); } catch {}
+  // The panel has no copy of the document, so it needs the words as well as the index.
+  const msg = type === 'sentence' && session.sentences[data.index] != null
+    ? { type, ...data, text: session.sentences[data.index] }
+    : { type, ...data };
+  for (const port of clients) post(port, msg);
 };
+
+/** Enough for a client that just connected to render what is happening. */
+const hasPanel = () => [...clients].some((p) => p.name === 'voxly-panel');
+
+const snapshot = () => (session ? {
+  title: session.title,
+  total: session.sentences.length,
+  index: session.index,
+  state: session.state,
+  text: session.sentences[session.index] || ''
+} : null);
 
 // The tab strip gets its mark from the content script (see src/doc/tab-mark.js). The toolbar
 // icon is ours, so mark that too — it is what you see when you come back to the tab.
@@ -53,6 +76,7 @@ chrome.runtime.onInstalled.addListener(() => {
     chrome.contextMenus.create({ id: 'voxly-read', title: 'Read this page with Voxly', contexts: ['page', 'selection'] });
     // On the toolbar icon, because it is about no page in particular.
     chrome.contextMenus.create({ id: 'voxly-open-file', title: 'Read a PDF or EPUB with Voxly\u2026', contexts: ['action'] });
+    chrome.contextMenus.create({ id: 'voxly-open-panel', title: 'Open the Voxly player', contexts: ['action'] });
   });
 });
 
@@ -61,6 +85,8 @@ const openViewer = () => chrome.tabs.create({ url: chrome.runtime.getURL(VIEWER)
 chrome.action.onClicked.addListener((tab) => openReader(tab));
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'voxly-open-file') openViewer();
+  // sidePanel.open needs a user gesture; a context-menu click is one.
+  else if (info.menuItemId === 'voxly-open-panel') chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
   else openReader(tab);
 });
 
@@ -95,38 +121,76 @@ function badgeUnreadable(tabId, title = "Voxly can't read this page") {
 // to badge the icon rather than interrupting the page with a dialog.
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === 'voxly:unreadable') badgeUnreadable(sender.tab?.id, 'Voxly found no text to read on this page');
+  // The reader's hint cannot call sidePanel.open itself — a content script has no such API — so
+  // it asks us, still inside the click that dismissed the hint.
+  else if (msg?.type === 'voxly:open-panel' && sender.tab?.windowId != null) {
+    chrome.sidePanel.open({ windowId: sender.tab.windowId }).catch(() => {});
+  }
 });
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'voxly-reader') return;
-  endSession(); // one reader at a time
-  session = {
-    port, sentences: [], blockStarts: [], index: 0, state: 'idle', engine: null,
-    // Present for a content script and for the file reader, which is an extension page open in a
-    // tab; absent only if a connection ever arrives from somewhere tabless.
-    tabId: port.sender?.tab?.id ?? null
-  };
-  const mine = session;
-  port.onMessage.addListener((msg) => { if (session === mine) handle(msg); });
-  port.onDisconnect.addListener(() => { if (session === mine) endSession(); });
+  if (port.name !== 'voxly-reader' && port.name !== 'voxly-panel') return;
+  clients.add(port);
+  port.onMessage.addListener((msg) => handle(msg, port));
+  port.onDisconnect.addListener(() => clientGone(port));
 });
 
-async function handle(msg) {
+/**
+ * A client went away. Keep reading if something is still listening, or if the person asked us to
+ * carry on when they leave the page — that is the whole point of background listening. Otherwise
+ * tear the session down, as it always did.
+ */
+function clientGone(port) {
+  clients.delete(port);
+  if (!session) return;
+  const playing = session.state === 'playing' || session.state === 'buffering';
+  if (clients.size === 0 && !(playing && session.background)) endSession();
+}
+
+/** A page is about to read: it owns the document, replacing whatever was being read before. */
+function adopt(msg, port) {
+  const tabId = port.sender?.tab?.id ?? null;
+  if (!session || session.tabId !== tabId) {
+    for (const e of Object.values(engines)) e.stop();
+    if (session) markTab(session, 'idle');
+  }
+  session = {
+    sentences: msg.sentences || session?.sentences || [],
+    blockStarts: msg.blockStarts || session?.blockStarts || [],
+    index: msg.index ?? 0,
+    state: 'idle',
+    engine: null,
+    title: msg.title || session?.title || '',
+    // Present for a content script and for the file reader, which is an extension page open in a
+    // tab; absent only if a connection ever arrives from somewhere tabless.
+    tabId,
+    background: false
+  };
+}
+
+async function handle(msg, port) {
+  // Only a client holding a document may replace what is being read.
+  if ((msg.type === 'play' || msg.type === 'load') && msg.sentences) adopt(msg, port);
+  if (!session && msg.type !== 'hello' && msg.type !== 'ping') return;
+
   switch (msg.type) {
-    case 'ping': break; // heartbeat from the reader; receiving it keeps this worker alive
+    case 'ping': break; // heartbeat from a client; receiving it keeps this worker alive
     case 'hello': {
       const [settings, voices] = await Promise.all([getSettings(), chrome.tts.getVoices()]);
-      emit('init', { settings, systemVoices: rankVoices(voices, msg.lang), neuralVoices: NEURAL_VOICES });
+      post(port, {
+        type: 'init',
+        settings,
+        systemVoices: rankVoices(voices, msg.lang),
+        neuralVoices: NEURAL_VOICES,
+        snapshot: snapshot()
+      });
       break;
     }
     case 'load': // reconnected while paused: remember the article without starting playback
-      session.sentences = msg.sentences;
-      session.blockStarts = msg.blockStarts || [];
-      session.index = msg.index;
+      session.index = msg.index ?? session.index;
       session.state = 'paused';
       break;
     case 'play':
-      if (msg.sentences) session.sentences = msg.sentences;
       if (msg.blockStarts) session.blockStarts = msg.blockStarts;
       await play(msg.index ?? session.index);
       break;
@@ -152,7 +216,8 @@ async function handle(msg) {
       else await play(session.index);
       break;
     }
-    case 'close': endSession(); break;
+    case 'close': clientGone(port); break;  // this client is leaving, not necessarily the session
+    case 'stop': endSession(); break;       // the panel's stop button: really stop
   }
 }
 
@@ -180,11 +245,21 @@ function pickEngine(settings) {
 
 async function play(index) {
   const settings = await getSettings();
+  // Remembered on the session so that a disconnect later knows whether to keep going.
+  session.background = !!settings.background;
   const engine = pickEngine(settings);
   for (const e of Object.values(engines)) if (e !== engine) e.stop();
   session.engine = engine;
   session.index = Math.max(0, Math.min(index, session.sentences.length - 1));
   emit('sentence', { index: session.index });
+  if (session.background && !hasPanel() && !session.toldAboutPanel) {
+    session.toldAboutPanel = true;
+    emit('hint', {
+      text: 'Voxly will keep reading if you leave this page. Open the player to control it from anywhere.',
+      action: 'Open the player',
+      actionId: 'panel'
+    });
+  }
   await engine.start(session.sentences, session.index, settings, { blockStarts: session.blockStarts });
 }
 
@@ -192,6 +267,6 @@ function endSession() {
   if (!session) return;
   markTab(session, 'idle');
   for (const e of Object.values(engines)) e.stop();
-  try { session.port.disconnect(); } catch {}
   session = null;
+  for (const port of clients) post(port, { type: 'state', state: 'idle' });
 }
