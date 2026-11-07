@@ -51,6 +51,11 @@ copyFileSync(nm('pdfjs-dist/build/pdf.min.mjs'), at('lib/pdf.mjs'));
 copyFileSync(nm('pdfjs-dist/build/pdf.worker.min.mjs'), at('lib/pdf.worker.mjs'));
 copyFileSync(nm('pdfjs-dist/LICENSE'), at('lib/pdfjs-LICENSE'));
 
+// fflate, to unzip EPUB containers. The browser ES module build; no worker, because our CSP
+// allows no blob: scripts and fflate's async path builds its worker from one.
+copyFileSync(nm('fflate/esm/browser.js'), at('lib/fflate.js'));
+copyFileSync(nm('fflate/LICENSE'), at('lib/fflate-LICENSE'));
+
 await build({
   entryPoints: [at('scripts/kokoro-worker.src.js')],
   outfile: at('src/offscreen/kokoro-worker.js'),
@@ -78,7 +83,7 @@ const ortWeb = existsSync(nm('onnxruntime-web/dist')) ? nm('onnxruntime-web/dist
 for (const f of ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm']) copyFileSync(join(ortWeb, f), at('ort/' + f));
 // Everything we vendor must be self-contained: the Chrome Web Store forbids loading code
 // remotely, and our CSP would block it. pdf.js is the one here that could plausibly reach out.
-for (const f of ['lib/pdf.mjs', 'lib/pdf.worker.mjs']) {
+for (const f of ['lib/pdf.mjs', 'lib/pdf.worker.mjs', 'lib/fflate.js']) {
   const found = readFileSync(at(f), 'utf8').match(/https?:\/\/[^"'`\s]*(?:cdn|unpkg|jsdelivr)[^"'`\s]{0,60}/gi);
   if (found) throw new Error(`${f} references remote code: ${[...new Set(found)].slice(0, 3).join(', ')}`);
 }
