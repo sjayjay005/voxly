@@ -13,7 +13,8 @@
     replay: '<path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/>',
     prev: '<path d="M6 6h2v12H6zM18.5 6.9v10.2c0 .7-.8 1.1-1.4.7l-7.3-5.1a.9.9 0 0 1 0-1.4l7.3-5.1c.6-.4 1.4 0 1.4.7z"/>',
     next: '<path d="M16 6h2v12h-2zM5.5 6.9v10.2c0 .7.8 1.1 1.4.7l7.3-5.1a.9.9 0 0 0 0-1.4L6.9 6.2c-.6-.4-1.4 0-1.4.7z"/>',
-    close: '<path d="M6.7 5.3 12 10.6l5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3z"/>'
+    close: '<path d="M6.7 5.3 12 10.6l5.3-5.3 1.4 1.4-5.3 5.3 5.3 5.3-1.4 1.4-5.3-5.3-5.3 5.3-1.4-1.4 5.3-5.3-5.3-5.3z"/>',
+    star: '<path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.6 9.7l5.8-.8z"/>'
   };
   const svg = (name, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
   const SPEEDS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -128,6 +129,12 @@
   .left { font-variant-numeric: tabular-nums; }
 
   .settings { display: flex; align-items: center; gap: 10px; }
+  .star { width: 30px; height: 30px; border-radius: 10px; color: var(--dock-muted); }
+  .star svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+  .star:hover { color: var(--dock-ink); }
+  .star[aria-pressed="true"] { color: #FFC83D; }
+  .star[aria-pressed="true"] svg { fill: currentColor; stroke: currentColor; }
+  .star:disabled { opacity: .35; }
   .look { width: 34px; height: 30px; border-radius: 10px; background: rgba(255,255,255,.07); color: var(--dock-muted);
           font: 600 15px/1 system-ui, sans-serif; } .look:hover { color: var(--dock-ink); }
   .look[aria-expanded="true"] { color: var(--dock-ink); background: rgba(255,255,255,.16); }
@@ -212,6 +219,7 @@
             <div class="switch" role="switch" tabindex="0" aria-checked="false" title="Natural voice runs on your computer. First use downloads it once (about 90 MB).">
               <span class="knob"></span><span>Natural voice</span></div>
             <select class="voice" title="Voice"></select>
+            <button class="star" aria-pressed="false" title="Start every article with this voice">${svg('star')}</button>
             <button class="look" aria-expanded="false" aria-haspopup="true" title="Text and colours">Aa</button>
           </div>
           <div class="sheet" role="group" aria-label="Text and colours">
@@ -239,7 +247,7 @@
     const el = { ring: $('.ring'), rp: $('.ring .rp'), root: $('.root'), scroller: $('.scroller'), column: $('.column'), marker: $('.marker'), back: $('.back'),
                  fill: $('.fill'), buffer: $('.buffer'), track: $('.track'), status: $('.status'), left: $('.left'),
                  speed: $('.speed output'), sw: $('.switch'), voice: $('.voice'),
-                 look: $('.look'), sheet: $('.sheet'), announce: $('.announce') };
+                 look: $('.look'), sheet: $('.sheet'), announce: $('.announce'), star: $('.star') };
     $('.site').textContent = doc.site;
 
     // ---- article ----
@@ -337,6 +345,32 @@
       while (i < doc.sentences.length - 1 && acc + doc.sentences[i].length < target) acc += doc.sentences[i++].length;
       act.seek(i);
     });
+
+    // ---- favourite voice ----
+    // The voice in the dropdown right now, and whether it is already the favourite. A system
+    // "Default voice" has no id to remember, so it cannot be starred.
+    const currentVoice = () => (settings?.natural ? settings.neuralVoice : settings.systemVoice) || '';
+    const isFavourite = () => !!settings?.favourite
+      && settings.favourite === currentVoice()
+      && !!settings.favouriteNatural === !!settings.natural;
+
+    el.star.addEventListener('click', () => {
+      const voice = currentVoice();
+      if (!voice) return;
+      act.settings(isFavourite()
+        ? { favourite: '', favouriteNatural: false }
+        : { favourite: voice, favouriteNatural: !!settings.natural });
+    });
+
+    function applyStar() {
+      const voice = currentVoice();
+      const on = isFavourite();
+      el.star.disabled = !voice;
+      el.star.setAttribute('aria-pressed', String(on));
+      el.star.title = !voice ? 'Choose a voice to make it your favourite'
+        : on ? 'This voice starts every article. Click to unset it.'
+        : 'Start every article with this voice';
+    }
 
     // ---- how it looks ----
     // Each group is a set of buttons carrying the setting in a data attribute, so one handler
@@ -440,6 +474,7 @@
       setSettings(s, voices) {
         settings = s;
         applyLook(s);
+        applyStar();
         rate = Number(s.rate) || 1;
         el.speed.textContent = fmtSpeed(rate);
         el.sw.setAttribute('aria-checked', String(!!s.natural));
@@ -449,6 +484,7 @@
         el.voice.replaceChildren(...(s.natural ? [] : [new Option('Default voice', '')]),
           ...list.map((v) => new Option(v.label, v.id)));
         el.voice.value = list.some((v) => v.id === want) ? want : (s.natural ? list[0]?.id : '');
+        applyStar();
         el.left.textContent = timeLeft();
       },
       setState(next, detail = '', progress = null) {

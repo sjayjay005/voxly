@@ -22,8 +22,27 @@ export const NEURAL_VOICES = [
 // `background`: keep reading when you leave the page you started on. The side panel is what you
 // control it from, and what keeps the service worker alive while it plays.
 // theme/font/size/measure: how the reader looks. 'auto' follows the browser.
+// `favourite`: the voice every new reading session starts with, and the engine it belongs to.
+// Without it the last voice you tried silently became your default, so trying one out cost you
+// your preference. Empty means no favourite, and the last-used voice carries over as before.
 export const DEFAULT_SETTINGS = {
   natural: false, handoff: true, background: true,
   systemVoice: '', neuralVoice: 'af_heart', rate: 1,
+  favourite: '', favouriteNatural: false,
   theme: 'auto', font: 'serif', size: 21, measure: '34em'
 };
+
+/**
+ * What to change so a new session starts on the favourite voice, or null if there is nothing to
+ * do — no favourite set, or it is already the voice in use. A favourite carries its engine with
+ * it, so starring a Kokoro voice turns the natural voice on and starring a system voice turns it
+ * off; picking a voice is really picking a voice *and* an engine.
+ */
+export function favouritePatch(settings) {
+  const fav = settings?.favourite;
+  if (!fav) return null;
+  const natural = !!settings.favouriteNatural;
+  const field = natural ? 'neuralVoice' : 'systemVoice';
+  if (settings.natural === natural && settings[field] === fav) return null;
+  return { natural, [field]: fav };
+}

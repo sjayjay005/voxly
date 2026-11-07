@@ -4,6 +4,7 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 
 - Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
 - Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed (up to 3×), **Esc** closes.
+- **Star a voice** and every article starts with it, whichever voice you tried last. Starring a Kokoro voice turns the natural voice on with it; starring one of your computer's voices turns it off.
 - **Aa** in the dock sets the colours (auto, light, sepia, dark), the typeface (serif, sans, or a dyslexia-friendly face), the text size and the column width.
 - **PDFs and EPUBs too.** Right-click the Voxly icon and choose *Read a PDF or EPUB with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
 - **It keeps reading while you browse.** Right-click the Voxly icon and choose *Open the Voxly player* for a side panel that outlives the page you started on — switch tabs or close that tab and the voice carries on, with the transport, speed and natural-voice switch in the panel.
@@ -54,6 +55,8 @@ ort/                 ONNX WebAssembly runtime (built)
 Two details make it actually work. Chrome stops an idle service worker after about 30 seconds, so the panel heartbeats like the reader does — but only while something is playing, since an open panel with nothing to read has no business holding the worker resident. And the panel keeps no copy of the document: the worker sends it the title, the position and the sentence being spoken, which is also why a panel opened halfway through an article can render the right state immediately.
 
 This is a side panel rather than a popup on purpose. A popup would have meant `action.default_popup`, which is mutually exclusive with `action.onClicked` — so clicking the toolbar icon would have opened a menu instead of reading the page, and one-click-to-read is the whole interaction. The side panel costs one extra permission (`sidePanel`) and no host permissions.
+
+**A favourite voice** exists because the chosen voice always persisted, which meant the last voice you tried silently became your default — so auditioning one cost you your preference. The star records a voice *and* its engine, and `favouritePatch()` is applied once per document rather than on every `play()`, so changing voice mid-article still works and still lasts the session. It just no longer decides what the next article starts with. With nothing starred, the old last-used behaviour is unchanged.
 
 **Appearance** is four CSS custom properties — `--size`, `--measure`, `--face` and the colour tokens — set on the reader's root, so changing any of them re-renders nothing. The one subtlety is that "auto" has to keep following the browser while an explicit choice overrides it, so the dark tokens live behind `:not([data-theme="light"]):not([data-theme="sepia"])` and are declared again under `[data-theme="dark"]`. The dyslexia-friendly option asks for OpenDyslexic, then Atkinson Hyperlegible, then Verdana: no font file is shipped, so it uses whichever of the first two you have installed and falls back to a face that is everywhere and still more legible than a default sans.
 
