@@ -4,7 +4,7 @@
 import { createSystemEngine } from './system-engine.js';
 import { createNeuralEngine } from './neural-engine.js';
 import { createHybridEngine } from './hybrid-engine.js';
-import { NEURAL_VOICES, DEFAULT_SETTINGS } from './voices.js';
+import { NEURAL_VOICES, DEFAULT_SETTINGS, favouritePatch } from './voices.js';
 
 const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/tab-mark.js', 'src/doc/session.js',
                       'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
@@ -164,7 +164,10 @@ function adopt(msg, port) {
     // Present for a content script and for the file reader, which is an extension page open in a
     // tab; absent only if a connection ever arrives from somewhere tabless.
     tabId,
-    background: false
+    background: false,
+    // Carried across a reconnect for the same tab, so resuming does not re-apply the favourite
+    // over a voice chosen mid-session.
+    voiceSet: session && session.tabId === tabId ? !!session.voiceSet : false
   };
 }
 
@@ -244,7 +247,19 @@ function pickEngine(settings) {
 }
 
 async function play(index) {
-  const settings = await getSettings();
+  let settings = await getSettings();
+  // A favourite is the voice a *new* document starts on. Applied once, so changing voice while
+  // reading still works and still lasts the session — it just does not quietly become the
+  // default the way it used to.
+  if (!session.voiceSet) {
+    session.voiceSet = true;
+    const patch = favouritePatch(settings);
+    if (patch) {
+      settings = { ...settings, ...patch };
+      await chrome.storage.sync.set(settings);
+      emit('settings', { settings });
+    }
+  }
   // Remembered on the session so that a disconnect later knows whether to keep going.
   session.background = !!settings.background;
   const engine = pickEngine(settings);
