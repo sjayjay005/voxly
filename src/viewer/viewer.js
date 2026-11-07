@@ -12,6 +12,7 @@
 //
 // Text extraction only: no page is ever rendered, because reading aloud needs no pixels.
 import * as pdfjs from '../../lib/pdf.mjs';
+import { openEpub, blocksOfChapter } from './epub.js';
 
 // The worker ships inside the extension; nothing is fetched from a CDN.
 pdfjs.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.mjs');
@@ -49,23 +50,69 @@ el.drop.addEventListener('drop', (e) => {
   if (file) load(file);
 });
 
+const isPdf = (f) => /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+const isEpub = (f) => /\.epub$/i.test(f.name) || f.type === 'application/epub+zip';
+
 async function load(file) {
   const mine = ++run;
   if (session) { session.close(); session = null; }
-  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
-    return say(`${file.name} is not a PDF. EPUB support is coming; for now Voxly reads PDFs and web pages.`, true);
+  const kind = isPdf(file) ? 'PDF' : isEpub(file) ? 'EPUB' : null;
+  if (!kind) {
+    return say(`${file.name} is not a PDF or an EPUB. Voxly reads those two, and web pages.`, true);
   }
   say(`Opening ${file.name}\u2026`);
   try {
-    await read(file, mine);
+    if (kind === 'PDF') await readPdf(file, mine);
+    else await readEpub(file, mine);
   } catch (e) {
     if (mine !== run) return; // superseded by another file
-    console.error('[voxly] PDF failed', e);
-    say(`Could not read that PDF: ${e.message}`, true);
+    console.error(`[voxly] ${kind} failed`, e);
+    say(`Could not read that ${kind}: ${e.message}`, true);
   }
 }
 
-async function read(file, mine) {
+/**
+ * An EPUB carries its own reading order, so there is no geometry to infer — just unzip, then
+ * parse chapters into blocks. Parsing is batched for the same reason PDF extraction is: a long
+ * book should start reading before all of it has been through DOMParser.
+ */
+async function readEpub(file, mine) {
+  const { title, docs } = openEpub(new Uint8Array(await file.arrayBuffer()));
+  if (mine !== run) return;
+
+  // A first slice: chapters until there is enough to read, since a title page may hold two words.
+  const blocks = [];
+  let next = 0;
+  while (next < docs.length && blocks.reduce((n, b) => n + b.text.length, 0) < 600) {
+    blocks.push(...blocksOfChapter(docs[next].text));
+    next++;
+  }
+  const doc = VX.model.buildModel({
+    title: title || file.name.replace(/\.epub$/i, ''),
+    site: 'EPUB',
+    blocks
+  });
+  if (mine !== run) return;
+  if (!doc.sentences.length) {
+    return say('No readable text found in that EPUB.', true);
+  }
+  session = VX.createSession(doc, { onClosed: () => { session = null; } });
+  say(next < docs.length
+    ? `Reading ${file.name} \u2014 chapter ${next} of ${docs.length}\u2026`
+    : `${file.name}: ${doc.sentences.length} sentences.`);
+
+  // The remaining chapters, appended behind the playhead.
+  for (; next < docs.length; next++) {
+    if (mine !== run || !session || session.closed) return;
+    session.extend(blocksOfChapter(docs[next].text));
+    say(next + 1 < docs.length
+      ? `Reading ${file.name} \u2014 chapter ${next + 1} of ${docs.length}\u2026`
+      : `${file.name}: all ${docs.length} chapters read in.`);
+    await new Promise((r) => setTimeout(r, 0)); // let the reader breathe between chapters
+  }
+}
+
+async function readPdf(file, mine) {
   const data = new Uint8Array(await file.arrayBuffer());
   const task = pdfjs.getDocument({
     data,

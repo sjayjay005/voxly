@@ -52,7 +52,7 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'voxly-read', title: 'Read this page with Voxly', contexts: ['page', 'selection'] });
     // On the toolbar icon, because it is about no page in particular.
-    chrome.contextMenus.create({ id: 'voxly-open-file', title: 'Read a PDF with Voxly\u2026', contexts: ['action'] });
+    chrome.contextMenus.create({ id: 'voxly-open-file', title: 'Read a PDF or EPUB with Voxly\u2026', contexts: ['action'] });
   });
 });
 

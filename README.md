@@ -4,7 +4,7 @@ A Chrome extension that does one thing: turns the page you're on into clean, rea
 
 - Click the toolbar icon (or **Alt+Shift+R**). If you've selected text, reading starts there.
 - Click any sentence to jump to it. **Space** pauses, **←/→** move by sentence, **+/−** change speed, **Esc** closes.
-- **PDFs too.** Right-click the Voxly icon and choose *Read a PDF with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
+- **PDFs and EPUBs too.** Right-click the Voxly icon and choose *Read a PDF or EPUB with Voxly* to open a file. It gets the same reader, the same voices and the same highlighting as a web page.
 - **The reading tab is marked.** While Voxly reads, that tab shows ▶ in front of its title and takes Voxly's icon, so you can find it from anywhere in the tab strip. Both go back to normal when you close the reader.
 - **Natural voice** switches from your computer's built-in voices to Kokoro, an open neural voice that runs entirely on your machine. It starts speaking immediately in your system voice and changes over once Kokoro is ready, so a slow computer never leaves you waiting.
 
@@ -23,8 +23,9 @@ src/
     view.js          the reader UI (shadow DOM): text, one moving highlight marker, control dock
     reader.js        toggles the reader on the current page
   viewer/            the file reader, an extension page
-    viewer.html/js   drop a PDF; pdf.js extracts text, never renders a page
+    viewer.html/js   drop a PDF or EPUB; text only, no page is ever rendered
     pdf-layout.js    positioned text runs → paragraphs, inferred from the geometry
+    epub.js          container → package file → spine; chapters reuse blocksFrom()
   background/        service worker (ES modules)
     main.js          opens the reader, owns the one reading session, routes events
     system-engine.js chrome.tts — every sentence queued up front, so no gaps
@@ -39,6 +40,7 @@ src/
 test/                node --test over the pacing, model and PDF-layout logic
 lib/Readability.js   vendored from @mozilla/readability (built)
 lib/pdf*.mjs         vendored from pdfjs-dist (built)
+lib/fflate.js        vendored from fflate, to unzip EPUBs (built)
 ort/                 ONNX WebAssembly runtime (built)
 ```
 
@@ -51,6 +53,8 @@ ort/                 ONNX WebAssembly runtime (built)
 Reading starts after the first six pages, not after the whole file. A long book would otherwise sit in silence while every page was extracted; the rest is extracted ten pages at a time behind the playhead and appended as it arrives, which is why `model.js`, the view and both engines can all grow a document mid-sentence. One cost of extracting in batches: a paragraph that straddles a batch boundary reads as two, and running heads are detected per batch rather than across the whole file.
 
 Three limits worth knowing: a scanned PDF has no text to extract (there is no OCR), and CJK text needs character maps that aren't vendored. Chrome also blocks extensions from running on its own PDF viewer, and reaching a PDF's bytes would need host permissions on every site — so Voxly asks you to open your copy of the file instead.
+
+**Reading an EPUB** is far less work than a PDF, because an EPUB writes its reading order down: `META-INF/container.xml` points at the package file, which lists a manifest and a spine, and each spine document is XHTML — so once unzipped, the same `blocksFrom()` that handles a web page handles a chapter. Only the textual entries are decompressed; an EPUB is mostly images and none of them are needed. Chapters are parsed in batches so a long book starts reading before all of it has been through the parser, and `linear="no"` spine entries are skipped as front or back matter. The fiddly part is path resolution — manifest hrefs are relative to the package file's directory, URL-encoded and sometimes carry a fragment, while the lookup they feed is a flat list of zip entry names — so that part is pure and covered by tests.
 
 **On a machine slower than realtime** the natural voice used to make you wait up to 45 seconds, then offer to turn itself off. Four things replace that:
 
