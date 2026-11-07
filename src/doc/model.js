@@ -104,5 +104,27 @@
     return { title: cleanTitle, site, blocks: model, sentences, blockStarts, startAt: 0 };
   }
 
-  VX.model = { LEAF, MAX_SENTENCE, clean, isNoise, kindOf, blocksFrom, splitSentences, buildModel };
+  /**
+   * Append blocks to a model already being read, keeping sentence indices contiguous.
+   * Returns just the block models added, so the view can render those and leave the rest alone.
+   *
+   * This is what lets a long PDF start reading before it has finished extracting: the reader
+   * opens on the first few pages and the document grows underneath it.
+   */
+  function appendBlocks(doc, blocks, lang) {
+    const added = [];
+    for (const b of blocks) {
+      const text = clean(b.text || '');
+      if (!text) continue;
+      const ss = b.kind === 'code' ? [text.slice(0, MAX_SENTENCE)] : splitSentences(text, lang);
+      if (!ss.length) continue;
+      const block = { kind: b.kind, sentences: ss.map((t) => ({ text: t, index: doc.sentences.push(t) - 1 })) };
+      doc.blocks.push(block);
+      doc.blockStarts.push(block.sentences[0].index);
+      added.push(block);
+    }
+    return added;
+  }
+
+  VX.model = { LEAF, MAX_SENTENCE, clean, isNoise, kindOf, blocksFrom, splitSentences, buildModel, appendBlocks };
 })();

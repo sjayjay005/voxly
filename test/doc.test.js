@@ -11,7 +11,7 @@ globalThis.VX = {};
 // is safe; only its pure title helper is exercised.
 globalThis.document = { title: '', querySelector: () => null, head: null };
 for (const f of ['src/doc/model.js', 'src/viewer/pdf-layout.js', 'src/doc/tab-mark.js']) new Function(readFileSync(f, 'utf8'))();
-const { splitSentences, buildModel, clean, isNoise, MAX_SENTENCE } = globalThis.VX.model;
+const { splitSentences, buildModel, appendBlocks, clean, isNoise, MAX_SENTENCE } = globalThis.VX.model;
 const { blocksFromPages, linesOf, isPageNumber, join } = globalThis.VX.pdfLayout;
 const { markedTitle, strip, ICON } = globalThis.VX.tabMark;
 
@@ -71,6 +71,51 @@ test('buildModel copes with no title and no blocks', () => {
 test('buildModel does not split a code block into sentences', () => {
   const doc = buildModel({ blocks: [{ kind: 'code', text: 'a = 1. b = 2. c = 3.' }] });
   assert.equal(doc.sentences.length, 1);
+});
+
+test('appendBlocks keeps sentence indices contiguous as a document grows', () => {
+  const doc = buildModel({ title: 'Long Book', blocks: [{ kind: 'text', text: 'The opening paragraph sits here.' }] });
+  assert.equal(doc.sentences.length, 2);
+
+  const added = appendBlocks(doc, [
+    { kind: 'text', text: 'A later paragraph arrives. It has two sentences.' },
+    { kind: 'heading', text: 'Chapter Two' }
+  ], 'en');
+
+  assert.equal(added.length, 2, 'returns only what it added');
+  assert.deepEqual(doc.sentences, [
+    'Long Book',
+    'The opening paragraph sits here.',
+    'A later paragraph arrives.',
+    'It has two sentences.',
+    'Chapter Two'
+  ]);
+  // Every sentence must still be findable by its own index.
+  const flat = doc.blocks.flatMap((b) => b.sentences);
+  for (const { text, index } of flat) assert.equal(doc.sentences[index], text, `index ${index} must match`);
+  assert.deepEqual(flat.map((x) => x.index), flat.map((_, i) => i), 'indices run 0..n with no gaps');
+});
+
+test('appendBlocks extends blockStarts so handover still lands on a paragraph', () => {
+  const doc = buildModel({ blocks: [{ kind: 'text', text: 'First paragraph here.' }] });
+  assert.deepEqual(doc.blockStarts, [0]);
+  appendBlocks(doc, [{ kind: 'text', text: 'Second paragraph here.' }], 'en');
+  appendBlocks(doc, [{ kind: 'text', text: 'Third paragraph here.' }], 'en');
+  assert.deepEqual(doc.blockStarts, [0, 1, 2]);
+});
+
+test('appendBlocks ignores blocks with no text', () => {
+  const doc = buildModel({ blocks: [{ kind: 'text', text: 'Something to read here.' }] });
+  const before = doc.sentences.length;
+  assert.equal(appendBlocks(doc, [{ kind: 'text', text: '   ' }, { kind: 'text', text: '' }], 'en').length, 0);
+  assert.equal(doc.sentences.length, before);
+});
+
+test('appending to an empty document behaves like building one', () => {
+  const doc = buildModel({});
+  appendBlocks(doc, [{ kind: 'text', text: 'The only paragraph here.' }], 'en');
+  assert.deepEqual(doc.sentences, ['The only paragraph here.']);
+  assert.deepEqual(doc.blockStarts, [0]);
 });
 
 // ---------------------------------------------------------------- pdf layout

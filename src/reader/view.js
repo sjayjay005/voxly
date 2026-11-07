@@ -147,8 +147,9 @@
   VX.createView = function createView(doc, act) {
     const host = document.createElement('voxly-reader');
     const shadow = host.attachShadow({ mode: 'open' });
-    const totalChars = doc.sentences.reduce((n, s) => n + s.length, 0);
-    const minutes = Math.max(1, Math.round(totalChars / 14.5 / 60));
+    // Both grow when a document is still being extracted, so neither is constant.
+    let totalChars = doc.sentences.reduce((n, s) => n + s.length, 0);
+    const listenTime = () => `${Math.max(1, Math.round(totalChars / 14.5 / 60))} minute listen`;
 
     shadow.innerHTML = `<style>${CSS}</style>
       <div class="root" data-state="buffering" role="dialog" aria-label="Voxly reader" tabindex="-1">
@@ -184,38 +185,45 @@
     $('.site').textContent = doc.site;
 
     // ---- article ----
-    const spans = new Array(doc.sentences.length);
-    const frag = document.createDocumentFragment();
-    let list = null;
-    for (const block of doc.blocks) {
-      let node;
-      if (block.kind === 'title') {
-        node = document.createElement('h1'); node.className = 'title';
-      } else if (block.kind === 'item') {
-        if (!list) { list = document.createElement('ul'); frag.append(list); }
-        node = document.createElement('li');
-      } else {
-        list = null;
-        node = document.createElement(block.kind === 'heading' ? 'h2' : block.kind === 'quote' ? 'blockquote' : block.kind === 'code' ? 'pre' : 'p');
+    const spans = [];
+    let metaEl = null;
+
+    // One rendering pass, used both for the document we opened with and for anything appended to
+    // it while it is still being extracted.
+    function renderBlocks(blocks) {
+      const frag = document.createDocumentFragment();
+      let list = null;
+      for (const block of blocks) {
+        let node;
+        if (block.kind === 'title') {
+          node = document.createElement('h1'); node.className = 'title';
+        } else if (block.kind === 'item') {
+          if (!list) { list = document.createElement('ul'); frag.append(list); }
+          node = document.createElement('li');
+        } else {
+          list = null;
+          node = document.createElement(block.kind === 'heading' ? 'h2' : block.kind === 'quote' ? 'blockquote' : block.kind === 'code' ? 'pre' : 'p');
+        }
+        block.sentences.forEach(({ text, index }, k) => {
+          const s = document.createElement('span');
+          s.className = 's';
+          s.dataset.i = index;
+          s.textContent = text;
+          spans[index] = s;
+          if (k) node.append(' ');
+          node.append(s);
+        });
+        (block.kind === 'item' ? list : frag).append(node);
+        if (block.kind === 'title') {
+          metaEl = document.createElement('div');
+          metaEl.className = 'meta';
+          metaEl.textContent = listenTime();
+          frag.append(metaEl);
+        }
       }
-      block.sentences.forEach(({ text, index }, k) => {
-        const s = document.createElement('span');
-        s.className = 's';
-        s.dataset.i = index;
-        s.textContent = text;
-        spans[index] = s;
-        if (k) node.append(' ');
-        node.append(s);
-      });
-      (block.kind === 'item' ? list : frag).append(node);
-      if (block.kind === 'title') {
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.textContent = `${minutes} minute listen`;
-        frag.append(meta);
-      }
+      el.column.append(frag);
     }
-    el.column.append(frag);
+    renderBlocks(doc.blocks);
 
     // ---- state ----
     let active = -1, follow = true, rate = 1, state = 'buffering', userScrollAt = 0, settings = null;
@@ -371,6 +379,22 @@
         el.marker.classList.add('on');
       },
       clearWord() { el.marker.classList.remove('on'); },
+      /**
+       * More of the document arrived. Render the new blocks and refresh everything derived from
+       * its length: the progress track, the time left, the "N minute listen" line.
+       */
+      appendBlocks(blocks) {
+        if (!blocks?.length) return;
+        renderBlocks(blocks);
+        totalChars = doc.sentences.reduce((n, s) => n + s.length, 0);
+        if (metaEl) metaEl.textContent = listenTime();
+        if (state !== 'buffering') el.left.textContent = timeLeft();
+        if (active >= 0 && totalChars) {
+          let before = 0;
+          for (let k = 0; k < active; k++) before += doc.sentences[k].length;
+          el.fill.style.width = (before / totalChars) * 100 + '%';
+        }
+      },
       setHint(text, action, actionId = null) {
         hint.text.textContent = text;
         hint.act.textContent = action || 'OK';

@@ -48,7 +48,9 @@ ort/                 ONNX WebAssembly runtime (built)
 
 **Reading a PDF.** A PDF has no paragraphs — only glyphs at coordinates — so `pdf-layout.js` infers the structure from geometry: it groups text runs into lines, then starts a new paragraph on a wide vertical gap, an indent, or a short line that ends in a full stop. Lines that repeat in the same place on most pages are running heads and get dropped, as do page numbers; end-of-line hyphenation is undone when lines are joined. A line noticeably taller than the body text becomes a heading. From there it is the same model a web page produces, so the reader, the voices and the word highlighting are unchanged.
 
-Two limits worth knowing: a scanned PDF has no text to extract (there is no OCR), and CJK text needs character maps that aren't vendored. Chrome also blocks extensions from running on its own PDF viewer, and reaching a PDF's bytes would need host permissions on every site — so Voxly asks you to open your copy of the file instead.
+Reading starts after the first six pages, not after the whole file. A long book would otherwise sit in silence while every page was extracted; the rest is extracted ten pages at a time behind the playhead and appended as it arrives, which is why `model.js`, the view and both engines can all grow a document mid-sentence. One cost of extracting in batches: a paragraph that straddles a batch boundary reads as two, and running heads are detected per batch rather than across the whole file.
+
+Three limits worth knowing: a scanned PDF has no text to extract (there is no OCR), and CJK text needs character maps that aren't vendored. Chrome also blocks extensions from running on its own PDF viewer, and reaching a PDF's bytes would need host permissions on every site — so Voxly asks you to open your copy of the file instead.
 
 **On a machine slower than realtime** the natural voice used to make you wait up to 45 seconds, then offer to turn itself off. Four things replace that:
 

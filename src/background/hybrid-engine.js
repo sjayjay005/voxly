@@ -124,6 +124,12 @@ export function createHybridEngine(emit, { system, neural, tap }) {
       active()?.resume(restartFrom);
     },
     rate(speed) { neural.rate(speed); },
+    // Both sides need it: the system voice may be reading aloud while the natural one generates.
+    extend(sentences, blockStarts) {
+      if (s) s.sentences = sentences;
+      system.extend?.(sentences);
+      neural.extend(sentences, blockStarts);
+    },
     stop
   };
 }

@@ -102,7 +102,8 @@ chrome.runtime.onConnect.addListener((port) => {
   endSession(); // one reader at a time
   session = {
     port, sentences: [], blockStarts: [], index: 0, state: 'idle', engine: null,
-    // Not set for the file reader, which is an extension page rather than a tab we injected into.
+    // Present for a content script and for the file reader, which is an extension page open in a
+    // tab; absent only if a connection ever arrives from somewhere tabless.
     tabId: port.sender?.tab?.id ?? null
   };
   const mine = session;
@@ -128,6 +129,13 @@ async function handle(msg) {
       if (msg.sentences) session.sentences = msg.sentences;
       if (msg.blockStarts) session.blockStarts = msg.blockStarts;
       await play(msg.index ?? session.index);
+      break;
+    case 'extend': // the document is still being extracted and just got longer
+      session.sentences = msg.sentences;
+      if (msg.blockStarts) session.blockStarts = msg.blockStarts;
+      if (session.state === 'playing' || session.state === 'buffering') {
+        session.engine?.extend?.(session.sentences, session.blockStarts);
+      }
       break;
     case 'pause': session.engine?.pause(); break;
     case 'resume': session.engine?.resume(() => play(session.index)); break;

@@ -150,6 +150,24 @@
       onClosed?.();
     }
 
-    return { close, get view() { return s.view; } };
+    return {
+      close,
+      get view() { return s.view; },
+      get closed() { return s.closed; },
+      /**
+       * More of the document has been extracted. Grow the model, render the new blocks, and tell
+       * the service worker so the voice carries on into them instead of stopping at what we had
+       * when the reader opened. Returns how many blocks were added.
+       */
+      extend(blocks) {
+        if (s.closed) return 0;
+        const added = VX.model.appendBlocks(doc, blocks, doc.lang);
+        if (!added.length) return 0;
+        s.view.appendBlocks(added);
+        // If the Port happens to be down, a reconnect re-sends the whole (longer) document.
+        send('extend', { sentences: doc.sentences, blockStarts: doc.blockStarts });
+        return added.length;
+      }
+    };
   };
 })();
