@@ -6,7 +6,8 @@ import { createNeuralEngine } from './neural-engine.js';
 import { createHybridEngine } from './hybrid-engine.js';
 import { NEURAL_VOICES, DEFAULT_SETTINGS } from './voices.js';
 
-const READER_FILES = ['lib/Readability.js', 'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
+const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/session.js',
+                      'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
 
 /** @type {{port: chrome.runtime.Port, sentences: string[], blockStarts: number[], index: number, state: string, engine: object} | null} */
 let session = null;
@@ -35,14 +36,23 @@ engines.hybrid = createHybridEngine(emit, { system: engines.system, neural: engi
 
 const getSettings = () => chrome.storage.sync.get(DEFAULT_SETTINGS);
 
+const VIEWER = 'src/viewer/viewer.html';
+
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'voxly-read', title: 'Read this page with Voxly', contexts: ['page', 'selection'] });
+    // On the toolbar icon, because it is about no page in particular.
+    chrome.contextMenus.create({ id: 'voxly-open-file', title: 'Read a PDF with Voxly\u2026', contexts: ['action'] });
   });
 });
 
+const openViewer = () => chrome.tabs.create({ url: chrome.runtime.getURL(VIEWER) });
+
 chrome.action.onClicked.addListener((tab) => openReader(tab));
-chrome.contextMenus.onClicked.addListener((_info, tab) => openReader(tab));
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'voxly-open-file') openViewer();
+  else openReader(tab);
+});
 
 async function openReader(tab) {
   if (!tab?.id) return;
@@ -50,8 +60,14 @@ async function openReader(tab) {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: READER_FILES });
     await chrome.tabs.sendMessage(tab.id, { type: 'voxly:toggle' });
   } catch (e) {
-    // chrome:// pages, the Web Store and the PDF viewer don't allow extensions to run.
-    badgeUnreadable(tab.id);
+    // chrome:// pages, the Web Store and Chrome's own PDF viewer don't allow extensions to run.
+    // We cannot fetch the PDF ourselves without host permissions, so point at the file reader,
+    // where someone can open their own copy.
+    if (/\.pdf(?:[?#]|$)/i.test(tab.url || '')) {
+      badgeUnreadable(tab.id, "Chrome blocks extensions on its PDF viewer \u2014 right-click the Voxly icon for the file reader");
+    } else {
+      badgeUnreadable(tab.id);
+    }
   }
 }
 
