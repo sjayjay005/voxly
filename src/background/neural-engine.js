@@ -66,6 +66,11 @@ export function createNeuralEngine(emit) {
     rate(speed) { send('rate', { speed: Number(speed) || 1 }); },
     /** The document grew: generate into the new sentences rather than stopping at the old end. */
     extend(sentences, blockStarts) { send('extend', { sentences, blockStarts }); },
+    /** Say one sentence in `voice`, outside any reading session, so it can be auditioned. */
+    async preview(text, voice, speed) {
+      await ensureDoc();
+      send('preview', { text, voice, speed });
+    },
     pause() { send('pause'); },
     resume() { send('resume'); },
     stop() { send('stop'); sid++; },

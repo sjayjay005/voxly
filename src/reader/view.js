@@ -129,6 +129,10 @@
   .left { font-variant-numeric: tabular-nums; }
 
   .settings { display: flex; align-items: center; gap: 10px; }
+  .hear { width: 30px; height: 30px; border-radius: 10px; color: var(--dock-muted); }
+  .hear svg { width: 15px; height: 15px; fill: currentColor; }
+  .hear:hover:not(:disabled) { color: var(--dock-ink); }
+  .hear:disabled { opacity: .35; }
   .star { width: 30px; height: 30px; border-radius: 10px; color: var(--dock-muted); }
   .star svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; }
   .star:hover { color: var(--dock-ink); }
@@ -219,6 +223,7 @@
             <div class="switch" role="switch" tabindex="0" aria-checked="false" title="Natural voice runs on your computer. First use downloads it once (about 90 MB).">
               <span class="knob"></span><span>Natural voice</span></div>
             <select class="voice" title="Voice"></select>
+            <button class="hear" title="Hear this voice">${svg('play', 'i-hear')}</button>
             <button class="star" aria-pressed="false" title="Start every article with this voice">${svg('star')}</button>
             <button class="look" aria-expanded="false" aria-haspopup="true" title="Text and colours">Aa</button>
           </div>
@@ -247,7 +252,7 @@
     const el = { ring: $('.ring'), rp: $('.ring .rp'), root: $('.root'), scroller: $('.scroller'), column: $('.column'), marker: $('.marker'), back: $('.back'),
                  fill: $('.fill'), buffer: $('.buffer'), track: $('.track'), status: $('.status'), left: $('.left'),
                  speed: $('.speed output'), sw: $('.switch'), voice: $('.voice'),
-                 look: $('.look'), sheet: $('.sheet'), announce: $('.announce'), star: $('.star') };
+                 look: $('.look'), sheet: $('.sheet'), announce: $('.announce'), star: $('.star'), hear: $('.hear') };
     $('.site').textContent = doc.site;
 
     // ---- article ----
@@ -293,6 +298,7 @@
 
     // ---- state ----
     let active = -1, follow = true, rate = 1, state = 'buffering', userScrollAt = 0, settings = null;
+    let pageLanguage = null;
 
     const timeLeft = () => {
       let chars = 0;
@@ -345,6 +351,46 @@
       while (i < doc.sentences.length - 1 && acc + doc.sentences[i].length < target) acc += doc.sentences[i++].length;
       act.seek(i);
     });
+
+    // ---- the voice list ----
+    /**
+     * Kokoro's voices are one flat list. The system's are not: a browser may offer dozens across
+     * languages, and on a page Kokoro cannot read they are the only way to hear it at all — so
+     * the ones that speak this page's language go in their own group, at the top.
+     */
+    function buildVoiceOptions(s, list) {
+      if (s.natural) return list.map((v) => new Option(v.label, v.id));
+      const opts = [new Option('Default voice', '')];
+      const mine = list.filter((v) => v.match);
+      const others = list.filter((v) => !v.match);
+      if (mine.length && others.length) {
+        const here = document.createElement('optgroup');
+        here.label = pageLanguage ? `${pageLanguage.name} voices` : 'This page\u2019s language';
+        for (const v of mine) here.append(new Option(v.label, v.id));
+        const rest = document.createElement('optgroup');
+        rest.label = 'Other languages';
+        for (const v of others) rest.append(new Option(v.label, v.id));
+        opts.push(here, rest);
+      } else {
+        for (const v of list) opts.push(new Option(v.label, v.id));
+      }
+      return opts;
+    }
+
+    // ---- hearing a voice before choosing it ----
+    // Twenty-eight Kokoro voices in a dropdown tell you nothing. Preview is held back while
+    // something is playing: the natural voice synthesizes one sentence at a time, so a preview
+    // mid-article would queue behind it and arrive late.
+    el.hear.addEventListener('click', () => {
+      const voice = el.voice.value;
+      act.preview(voice);
+    });
+
+    function applyHear() {
+      const busy = state === 'playing' || state === 'buffering';
+      el.hear.disabled = busy;
+      el.hear.title = busy ? 'Pause to hear a voice' : 'Hear this voice';
+    }
 
     // ---- favourite voice ----
     // The voice in the dropdown right now, and whether it is already the favourite. A system
@@ -471,6 +517,8 @@
 
     // ---- API used by the controller ----
     return {
+      /** Told once, at init, so the voice groups can be named. */
+      setPageLanguage(lang) { pageLanguage = lang; },
       setSettings(s, voices) {
         settings = s;
         applyLook(s);
@@ -481,16 +529,17 @@
         if (voices) this.voices = voices;
         const list = s.natural ? this.voices.neural : this.voices.system;
         const want = s.natural ? s.neuralVoice : s.systemVoice;
-        el.voice.replaceChildren(...(s.natural ? [] : [new Option('Default voice', '')]),
-          ...list.map((v) => new Option(v.label, v.id)));
+        el.voice.replaceChildren(...buildVoiceOptions(s, list));
         el.voice.value = list.some((v) => v.id === want) ? want : (s.natural ? list[0]?.id : '');
         applyStar();
+        applyHear();
         el.left.textContent = timeLeft();
       },
       setState(next, detail = '', progress = null) {
         state = next;
         el.root.dataset.state = next;
         announce(next, detail);
+        applyHear();
         // "Preparing natural voice — about 40s": the wait goes in the right-hand slot so it never gets truncated.
         const [label, eta] = next === 'buffering' ? (detail || 'Getting ready').split(' — ') : [];
         el.left.textContent = next === 'buffering' ? (eta || '').replace(/^about /, '~') : timeLeft();

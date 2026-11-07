@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voxly is installed</title>
+<style>
+  :root { --paper: #F5F6F2; --ink: #1E2230; --muted: #6A6F7E; --rule: #E2E4DD; --brand: #5B3DF5; --card: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #16171B; --ink: #E6E5DF; --muted: #8E919B; --rule: #2A2C33; --brand: #9A85FF; --card: #1C1E23; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+         font: 400 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 56px 24px 72px; }
+  h1 { font: 700 34px/1.15 Charter, "Iowan Old Style", Georgia, serif; letter-spacing: -.02em; margin: 0 0 10px; }
+  .lede { font-size: 18px; color: var(--muted); margin: 0 0 36px; }
+  ol { counter-reset: s; list-style: none; padding: 0; margin: 0 0 36px; display: flex; flex-direction: column; gap: 18px; }
+  li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 14px; align-items: start; }
+  li::before { content: counter(s); grid-row: span 2; width: 30px; height: 30px; border-radius: 50%;
+               background: var(--brand); color: #fff; font: 600 14px/30px system-ui, sans-serif; text-align: center; }
+  li h2 { font: 600 17px/1.35 inherit; margin: 2px 0 3px; }
+  li p { margin: 0; color: var(--muted); font-size: 15px; }
+  kbd { font: inherit; font-size: 13px; border: 1px solid var(--rule); border-radius: 5px; padding: 2px 6px;
+        background: var(--card); white-space: nowrap; }
+  .note { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 16px 18px; margin: 0 0 20px; }
+  .note h2 { font: 600 16px/1.3 inherit; margin: 0 0 6px; }
+  .note p { margin: 0; font-size: 15px; color: var(--muted); }
+  .note p + p { margin-top: 8px; }
+  footer { border-top: 1px solid var(--rule); padding-top: 20px; font-size: 14px; color: var(--muted); }
+  a { color: var(--brand); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voxly is ready</h1>
+  <p class="lede">It reads the page you are on, out loud, highlighting each word as it goes. Here is everything there is to know.</p>
+
+  <ol>
+    <li>
+      <h2>Press <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>R</kbd> on any article</h2>
+      <p>Or click the Voxly icon in the toolbar. Select some text first and it starts there. Click any sentence to jump to it, <kbd>Space</kbd> to pause, <kbd>Esc</kbd> to close.</p>
+    </li>
+    <li>
+      <h2>Turn on <strong>Natural voice</strong> for the good one</h2>
+      <p>Voxly starts with your computer's built-in voices, which are instant and cost nothing. The natural voice is Kokoro, which sounds far better and runs entirely on your machine — it downloads about 90&nbsp;MB the first time, once, and then works offline forever. Star a voice to make every article start with it.</p>
+    </li>
+    <li>
+      <h2>PDFs and EPUBs too</h2>
+      <p>Right-click the Voxly icon and choose <em>Read a PDF or EPUB with Voxly</em>, then drop a file in. Scanned PDFs have no text to read, so those will not work.</p>
+    </li>
+    <li>
+      <h2>Keep listening while you browse</h2>
+      <p>Right-click the icon and choose <em>Open the Voxly player</em>. It keeps reading when you switch tabs or close the one you started on.</p>
+    </li>
+  </ol>
+
+  <div class="note">
+    <h2>Which languages?</h2>
+    <p>The natural voice speaks English, American or British. For any other language Voxly uses your computer's voices, and lists the ones matching the page first — so it still reads, just not in Kokoro's voice.</p>
+    <p>On a Mac, Apple's Premium and Enhanced voices are worth installing: System Settings → Accessibility → Spoken Content → System voice → Manage Voices. They sound close to neural and cost almost no CPU.</p>
+  </div>
+
+  <div class="note">
+    <h2>Nothing leaves your computer</h2>
+    <p>Voxly has no servers, no account and no analytics, and it cannot see any page until you ask it to read one. The only thing it ever downloads is the voice model, once, and only if you turn the natural voice on.</p>
+    <p>The exception is Chrome's own online voices, marked <em>(online)</em> in the list: those are Google's, and Chrome sends the text to them. Choose any other voice if you would rather it did not.</p>
+  </div>
+
+  <footer>
+    Voxly is free and open source. <a href="https://github.com/sjayjay005/voxly">Source and issues on GitHub</a> &middot;
+    <a href="https://sjayjay005.github.io/voxly/privacy.html">Privacy policy</a>
+  </footer>
+</main>
+</body>
+</html>
