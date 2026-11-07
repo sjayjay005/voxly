@@ -29,6 +29,7 @@
         if (id === 'handoff') send('settings', { patch: { handoff: true } });
         else if (id === 'nohandoff') send('settings', { patch: { handoff: false } });
         else if (id === 'natural-off') send('settings', { patch: { natural: false } });
+        else if (id === 'panel') chrome.runtime.sendMessage({ type: 'voxly:open-panel' }).catch(() => {});
         // 'dismiss' and anything unrecognised: closing the hint was the whole action.
       },
       close
@@ -78,7 +79,7 @@
           clearTimeout(s.helloTimer);
           s.reconnecting = false;
           view.setSettings(m.settings, { system: m.systemVoices, neural: m.neuralVoices });
-          const article = { sentences: doc.sentences, blockStarts: doc.blockStarts, index: s.resumeAt };
+          const article = { title: doc.title, sentences: doc.sentences, blockStarts: doc.blockStarts, index: s.resumeAt };
           if (s.autoplay === false) { send('load', article); view.setState('paused'); }
           else send('play', article);
           break;

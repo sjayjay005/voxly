@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Voxly player</title>
+<style>
+  :root { --paper: #F5F6F2; --ink: #1E2230; --muted: #6A6F7E; --rule: #E2E4DD; --brand: #5B3DF5; --brand-ink: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #16171B; --ink: #E6E5DF; --muted: #8E919B; --rule: #2A2C33; --brand: #8C74FF; --brand-ink: #16171B; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--paper); color: var(--ink);
+         font: 400 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  h1 { font: 600 15px/1.3 inherit; margin: 0 0 2px; overflow-wrap: anywhere; }
+  .where { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; margin: 0 0 14px; }
+  .saying { font: 400 15px/1.55 Charter, "Iowan Old Style", Georgia, serif; margin: 0 0 18px;
+            min-height: 4.6em; overflow-wrap: anywhere; }
+  .track { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; margin: 0 0 16px; }
+  .fill { height: 100%; width: 0; background: var(--brand); transition: width .25s linear; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  button { font: 600 14px/1 inherit; color: var(--ink); background: none; border: 1px solid var(--rule);
+           border-radius: 8px; padding: 9px 11px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  .play { flex: 1; background: var(--brand); color: var(--brand-ink); border-color: transparent; }
+  .speed { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .speed output { min-width: 3.1em; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+  label.sw { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .stop { width: 100%; color: var(--muted); }
+  #empty { color: var(--muted); }
+  #empty kbd { font: inherit; font-size: 12px; border: 1px solid var(--rule); border-radius: 4px; padding: 2px 5px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="empty">
+    <p>Nothing is being read.</p>
+    <p>Open a page and press <kbd>Alt</kbd> <kbd>Shift</kbd> <kbd>R</kbd>, or right-click the Voxly icon to open a PDF or EPUB.</p>
+    <p>Whatever you start will keep playing here while you browse.</p>
+  </div>
+
+  <div id="player" hidden>
+    <h1 id="title"></h1>
+    <p class="where" id="where"></p>
+    <div class="track"><div class="fill" id="fill"></div></div>
+    <p class="saying" id="saying"></p>
+    <div class="row">
+      <button id="prev" title="Previous sentence">&#9664;&#9664;</button>
+      <button class="play" id="toggle">Pause</button>
+      <button id="next" title="Next sentence">&#9654;&#9654;</button>
+    </div>
+    <div class="row">
+      <label class="sw"><input type="checkbox" id="natural"> Natural voice</label>
+      <span class="speed"><button id="slower" title="Slower">&minus;</button><output id="rate"></output><button id="faster" title="Faster">+</button></span>
+    </div>
+    <button class="stop" id="stop">Stop reading</button>
+  </div>
+
+<script src="panel.js"></script>
+</body>
+</html>

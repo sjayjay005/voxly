@@ -336,6 +336,7 @@
           next === 'buffering' ? label :
           next === 'paused' ? 'Paused' :
           next === 'ended' ? 'Finished' :
+          next === 'idle' ? 'Stopped' :
           next === 'error' ? detail || 'Something went wrong. Press play to try again.' :
           `Sentence ${active + 1} of ${doc.sentences.length}`;
         // Determinate ring when we know how far along buffering is, a spinner when we don't.

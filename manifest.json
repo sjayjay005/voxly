@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Voxly – Free Read Aloud",
   "short_name": "Voxly",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Turns any article into clean, readable text and reads it aloud with word-by-word highlighting. Free, private, no account.",
   "minimum_chrome_version": "116",
   "permissions": [
@@ -12,8 +12,12 @@
     "tts",
     "contextMenus",
     "offscreen",
+    "sidePanel",
     "unlimitedStorage"
   ],
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
   "background": {
     "service_worker": "src/background/main.js",
     "type": "module"

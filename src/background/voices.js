@@ -11,4 +11,6 @@ export const NEURAL_VOICES = [
 // `handoff`: start in the system voice and change to the natural one when it is ready, instead
 // of waiting for it. On by default — on a slow machine it is the difference between speaking at
 // once and waiting the better part of a minute.
-export const DEFAULT_SETTINGS = { natural: false, handoff: true, systemVoice: '', neuralVoice: 'af_heart', rate: 1 };
+// `background`: keep reading when you leave the page you started on. The side panel is what you
+// control it from, and what keeps the service worker alive while it plays.
+export const DEFAULT_SETTINGS = { natural: false, handoff: true, background: true, systemVoice: '', neuralVoice: 'af_heart', rate: 1 };
