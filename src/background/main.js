@@ -5,9 +5,11 @@ import { createSystemEngine } from './system-engine.js';
 import { createNeuralEngine } from './neural-engine.js';
 import { createHybridEngine } from './hybrid-engine.js';
 import { NEURAL_VOICES, DEFAULT_SETTINGS, favouritePatch } from './voices.js';
+import * as queue from './queue.js';
 
-const READER_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/doc/tab-mark.js', 'src/doc/session.js',
-                      'src/reader/extract.js', 'src/reader/view.js', 'src/reader/reader.js'];
+const EXTRACT_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/reader/extract.js'];
+const READER_FILES = [...EXTRACT_FILES, 'src/doc/tab-mark.js', 'src/doc/session.js',
+                      'src/reader/view.js', 'src/reader/reader.js'];
 
 // One reading session, any number of clients watching it: the reader overlay in a page, and the
 // side panel, which outlives the page it started from. The session belongs to the document being
@@ -70,13 +72,18 @@ engines.hybrid = createHybridEngine(emit, { system: engines.system, neural: engi
 const getSettings = () => chrome.storage.sync.get(DEFAULT_SETTINGS);
 
 const VIEWER = 'src/viewer/viewer.html';
+const WELCOME = 'src/welcome/welcome.html';
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(({ reason }) => {
+  // The two best things about Voxly — the natural voice and the file reader — are both behind a
+  // menu nobody thinks to open, so say so once on install. Not on update: that would be rude.
+  if (reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL(WELCOME) }).catch(() => {});
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({ id: 'voxly-read', title: 'Read this page with Voxly', contexts: ['page', 'selection'] });
     // On the toolbar icon, because it is about no page in particular.
     chrome.contextMenus.create({ id: 'voxly-open-file', title: 'Read a PDF or EPUB with Voxly\u2026', contexts: ['action'] });
     chrome.contextMenus.create({ id: 'voxly-open-panel', title: 'Open the Voxly player', contexts: ['action'] });
+    chrome.contextMenus.create({ id: 'voxly-queue', title: 'Listen to this later', contexts: ['page', 'selection'] });
   });
 });
 
@@ -84,7 +91,8 @@ const openViewer = () => chrome.tabs.create({ url: chrome.runtime.getURL(VIEWER)
 
 chrome.action.onClicked.addListener((tab) => openReader(tab));
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId === 'voxly-open-file') openViewer();
+  if (info.menuItemId === 'voxly-queue') queuePage(tab);
+  else if (info.menuItemId === 'voxly-open-file') openViewer();
   // sidePanel.open needs a user gesture; a context-menu click is one.
   else if (info.menuItemId === 'voxly-open-panel') chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
   else openReader(tab);
@@ -105,6 +113,36 @@ async function openReader(tab) {
       badgeUnreadable(tab.id);
     }
   }
+}
+
+/**
+ * Extract this page now and keep the text. We cannot fetch it later — that would need permission
+ * to read every site — so the only moment the text is available is while the click that asked
+ * for it still grants activeTab.
+ */
+async function queuePage(tab) {
+  if (!tab?.id) return;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: EXTRACT_FILES });
+    const [{ result: doc } = {}] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => (globalThis.VX?.extract ? globalThis.VX.extract() : null)
+    });
+    if (!doc?.sentences?.length) return badgeUnreadable(tab.id, 'Voxly found no text to add');
+    const entry = await queue.add(doc, tab.url);
+    broadcastQueue();
+    chrome.action.setBadgeText({ tabId: tab.id, text: '+' }).catch(() => {});
+    chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#2F6B4F' }).catch(() => {});
+    chrome.action.setTitle({ tabId: tab.id, title: `Added "${entry.title}" to the Voxly player` }).catch(() => {});
+    setTimeout(() => chrome.action.setBadgeText({ tabId: tab.id, text: '' }).catch(() => {}), 2500);
+  } catch (e) {
+    badgeUnreadable(tab.id, "Voxly can't add this page");
+  }
+}
+
+async function broadcastQueue() {
+  const items = queue.summarise(await queue.list());
+  for (const port of clients) post(port, { type: 'queue', items });
 }
 
 // Flash '!' on the toolbar icon. This is the only feedback channel we have when there is no
@@ -174,18 +212,22 @@ function adopt(msg, port) {
 async function handle(msg, port) {
   // Only a client holding a document may replace what is being read.
   if ((msg.type === 'play' || msg.type === 'load') && msg.sentences) adopt(msg, port);
-  if (!session && msg.type !== 'hello' && msg.type !== 'ping') return;
+  const SESSIONLESS = ['hello', 'ping', 'preview', 'queue', 'queue-remove', 'queue-clear', 'queue-play'];
+  if (!session && !SESSIONLESS.includes(msg.type)) return;
 
   switch (msg.type) {
     case 'ping': break; // heartbeat from a client; receiving it keeps this worker alive
     case 'hello': {
       const [settings, voices] = await Promise.all([getSettings(), chrome.tts.getVoices()]);
+      if (session && msg.lang) session.lang = msg.lang;
       post(port, {
         type: 'init',
         settings,
         systemVoices: rankVoices(voices, msg.lang),
         neuralVoices: NEURAL_VOICES,
-        snapshot: snapshot()
+        pageLanguage: msg.lang ? { tag: langBase(msg.lang), name: langName(msg.lang) } : null,
+        snapshot: snapshot(),
+        queue: queue.summarise(await queue.list())
       });
       break;
     }
@@ -219,20 +261,70 @@ async function handle(msg, port) {
       else await play(session.index);
       break;
     }
+    case 'preview': await preview(msg.voice); break;
+    case 'queue': await broadcastQueue(); break;
+    case 'queue-remove': await queue.remove(msg.id); await broadcastQueue(); break;
+    case 'queue-clear': await queue.clear(); await broadcastQueue(); break;
+    case 'queue-play': {
+      const item = await queue.get(msg.id);
+      if (!item) { await broadcastQueue(); break; }
+      // Playing from the queue makes the panel the document's owner: there is no page involved.
+      adopt({ title: item.title, sentences: item.sentences, blockStarts: item.blockStarts, index: 0 }, port);
+      await play(0);
+      break;
+    }
     case 'close': clientGone(port); break;  // this client is leaving, not necessarily the session
     case 'stop': endSession(); break;       // the panel's stop button: really stop
   }
 }
 
-// Best voices first: the page's language, then Apple's Premium/Enhanced and other natural-sounding voices.
+// Best voices first: the page's language, then Apple's Premium/Enhanced and other natural-sounding
+// voices. `match` says whether a voice speaks the page's language, so the reader can group the
+// list — which is what makes Voxly usable at all on a page Kokoro cannot read.
 function rankVoices(voices, lang = navigator.language) {
-  const base = (lang || 'en').slice(0, 2).toLowerCase();
+  const base = langBase(lang);
   const quality = (n) => (/premium/i.test(n) ? 3 : /enhanced|natural|neural/i.test(n) ? 2 : /^google/i.test(n) ? 1 : 0);
   return voices.filter((v) => v.voiceName)
-    .map((v) => ({ id: v.voiceName, label: v.voiceName + (v.remote ? ' (online)' : ''), lang: v.lang || '',
-                   score: ((v.lang || '').toLowerCase().startsWith(base) ? 10 : 0) + quality(v.voiceName) }))
+    .map((v) => {
+      const match = langBase(v.lang) === base;
+      return {
+        id: v.voiceName,
+        label: v.voiceName + (v.remote ? ' (online)' : ''),
+        lang: v.lang || '',
+        match,
+        score: (match ? 10 : 0) + quality(v.voiceName)
+      };
+    })
     .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
     .map(({ score, ...v }) => v);
+}
+
+const langBase = (tag) => String(tag || 'en').slice(0, 2).toLowerCase();
+
+/** The language's own name, for telling someone which voices they are looking at. */
+function langName(tag) {
+  const base = langBase(tag);
+  try { return new Intl.DisplayNames([navigator.language], { type: 'language' }).of(base) || base; }
+  catch { return base; }
+}
+
+const SAMPLE = 'This is how this voice sounds reading an article aloud.';
+
+/**
+ * Speak one sentence so a voice can be heard before it is chosen. A Kokoro id goes to the
+ * offscreen player; anything else is one of the computer's own voices and chrome.tts can say it
+ * directly. Never while reading — the reader disables the button, and this refuses anyway.
+ */
+async function preview(voice) {
+  if (session && (session.state === 'playing' || session.state === 'buffering')) return;
+  const settings = await getSettings();
+  const rate = Number(settings.rate) || 1;
+  if (NEURAL_VOICES.some((v) => v.id === voice)) {
+    await engines.neural.preview(SAMPLE, voice, rate);
+  } else {
+    chrome.tts.stop();
+    chrome.tts.speak(SAMPLE, voice ? { voiceName: voice, rate } : { rate });
+  }
 }
 
 /**
@@ -267,6 +359,14 @@ async function play(index) {
   session.engine = engine;
   session.index = Math.max(0, Math.min(index, session.sentences.length - 1));
   emit('sentence', { index: session.index });
+  if (settings.natural && session.lang && langBase(session.lang) !== 'en' && !session.toldAboutLanguage) {
+    session.toldAboutLanguage = true;
+    emit('hint', {
+      text: `The natural voice speaks English only, so this ${langName(session.lang)} page will sound wrong. Your computer's ${langName(session.lang)} voices are listed first.`,
+      action: 'Use a system voice',
+      actionId: 'natural-off'
+    });
+  }
   if (session.background && !hasPanel() && !session.toldAboutPanel) {
     session.toldAboutPanel = true;
     emit('hint', {

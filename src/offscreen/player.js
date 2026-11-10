@@ -99,7 +99,11 @@ const report = (ev, data = {}) => {
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.target !== 'neural') return;
+  // start, preview and stop belong to no particular session: a preview must not be able to
+  // adopt or disturb one, and stop has to silence a preview even when nothing is being read.
   if (msg.op === 'start') start(msg);
+  else if (msg.op === 'preview') preview(msg);
+  else if (msg.op === 'stop') stop();
   else if (!current || msg.sid !== current.sid) return;
   else if (msg.op === 'at') sawSystemVoice(msg.index);     // where the system voice has reached
   else if (msg.op === 'begin') begin(msg.from);
@@ -107,7 +111,6 @@ chrome.runtime.onMessage.addListener((msg) => {
   else if (msg.op === 'extend') extendSession(msg.sentences, msg.blockStarts);
   else if (msg.op === 'pause') pause();
   else if (msg.op === 'resume') resume();
-  else if (msg.op === 'stop') stop();
 });
 
 let ctx = null;
@@ -351,6 +354,32 @@ async function extendSession(sentences, blockStarts) {
   if (s.prime) checkReady(s); else flush(s);
 }
 
+/**
+ * Say one sentence so a voice can be heard before it is chosen, without touching `current` — a
+ * preview must not be able to disturb a reading session, or adopt one if none exists. The worker
+ * runs one inference at a time, so this simply queues behind anything in flight.
+ */
+let previewSrc = null;
+async function preview({ text, voice, speed }) {
+  try {
+    ctx ||= new AudioContext({ latencyHint: 'playback', sampleRate: 24000 });
+    ctx.resume();
+    const out = await globalThis.voxlySynth.generate(text, voice, Number(speed) || 1);
+    try { previewSrc?.stop(); } catch {}
+    const buffer = ctx.createBuffer(1, out.audio.length, out.sampleRate);
+    buffer.copyToChannel(out.audio, 0);
+    const src = ctx.createBufferSource();
+    previewSrc = src;
+    src.buffer = buffer;
+    src.connect(ctx.destination);
+    src.onended = () => { src.disconnect(); src.buffer = null; if (previewSrc === src) previewSrc = null; };
+    src.start();
+  } catch (e) {
+    console.warn('[voxly] preview failed', e);
+    chrome.runtime.sendMessage({ source: 'neural', ev: 'state', state: 'error', detail: 'That voice could not be loaded: ' + e.message }).catch(() => {});
+  }
+}
+
 // ---- speed changes ----
 
 /**
@@ -513,6 +542,8 @@ function resume() {
 }
 
 function stop() {
+  try { previewSrc?.stop(); } catch {}
+  previewSrc = null;
   const s = current;
   current = null;
   if (s) {

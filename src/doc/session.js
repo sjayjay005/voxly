@@ -23,6 +23,7 @@
       },
       seek(i) { if (i >= 0 && i < doc.sentences.length) send('play', { index: i }); },
       settings(patch) { send('settings', { patch }); },
+      preview(voice) { send('preview', { voice }); },
       // What a hint's button does, by id. Keeping this here means a new hint needs no new wiring
       // in the view.
       hint(id) {
@@ -78,6 +79,7 @@
         case 'init': {
           clearTimeout(s.helloTimer);
           s.reconnecting = false;
+          view.setPageLanguage(m.pageLanguage);
           view.setSettings(m.settings, { system: m.systemVoices, neural: m.neuralVoices });
           const article = { title: doc.title, sentences: doc.sentences, blockStarts: doc.blockStarts, index: s.resumeAt };
           if (s.autoplay === false) { send('load', article); view.setState('paused'); }
