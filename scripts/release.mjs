@@ -7,14 +7,17 @@
 //   npm run release                  # notes from RELEASE_NOTES.md if present
 //   npm run release -- --notes x.md  # or from a file you name
 //   npm run release -- --dry-run     # check and package, publish nothing
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const run = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
-const quiet = (cmd, args) => { try { return run(cmd, args).trim(); } catch { return null; } };
+// Asking whether a tag or a command exists is not an error worth printing.
+const quiet = (cmd, args) => {
+  try { return run(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }
+};
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(name);
 const value = (name) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : null; };
