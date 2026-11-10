@@ -94,6 +94,14 @@ npm run check   # syntax + manifest checks (also run in CI)
 npm test        # node --test over the pacing arithmetic (also run in CI)
 npm run zip     # build + dist/voxly-<version>.zip for the Chrome Web Store
 ```
+**Submitting to the Chrome Web Store: always use `npm run zip`.** Zipping the project folder
+sweeps in `node_modules`, and `pdfjs-dist` publishes a `legacy/` build in there that bundles
+core-js — whose `NullProtoObject` writes a script into an iframe via a `javascript:` URL. Voxly
+neither uses nor ships that code, but a reviewer who finds it in the package reads it as
+concealed functionality, and 3.0.0 was rejected for exactly that. `npm run zip` builds the
+archive from an explicit list of five paths and then refuses to emit one containing anything
+else; `lib/VENDOR.md` records where every vendored file came from.
+
 Load the folder unpacked at `chrome://extensions` (Developer mode). The natural voice's console lives under **Inspect views → offscreen.html**; it logs load time and realtime factor per sentence, and `voxlyDebug()` shows buffer state, which engine is playing, the thread measurements so far and how many sentences are currently bridged from another speed.
 
 To test the slow path on a fast machine, throttle the CPU 4–6× in DevTools (Performance → CPU) before opening the reader.
