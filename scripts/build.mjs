@@ -6,6 +6,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSyn
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { PACKAGED, auditZip } from './package-audit.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const at = (p) => join(root, p);
@@ -95,6 +96,7 @@ if (process.argv.includes('--zip')) {
   mkdirSync(at('dist'), { recursive: true });
   const zip = at(`dist/voxly-${version}.zip`);
   rmSync(zip, { force: true });
-  execFileSync('zip', ['-qr9', zip, 'manifest.json', 'icons', 'lib', 'ort', 'src'], { cwd: root, stdio: 'inherit' });
+  execFileSync('zip', ['-qr9', zip, ...PACKAGED], { cwd: root, stdio: 'inherit' });
+  console.log('✓ ' + auditZip(zip));
   console.log('✓ ' + zip);
 }
