@@ -9,7 +9,8 @@
     "build": "node scripts/build.mjs",
     "zip": "node scripts/build.mjs --zip",
     "check": "node scripts/check.mjs",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "release": "node scripts/release.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
