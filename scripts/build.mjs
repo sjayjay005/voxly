@@ -6,7 +6,7 @@ import { copyFileSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSyn
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PACKAGED, auditZip } from './package-audit.mjs';
+import { PACKAGED, auditZip, auditReadability } from './package-audit.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const at = (p) => join(root, p);
@@ -46,10 +46,12 @@ assertOneTransformers();
 copyFileSync(nm('@mozilla/readability/Readability.js'), at('lib/Readability.js'));
 copyFileSync(nm('@mozilla/readability/LICENSE.md'), at('lib/Readability-LICENSE.md'));
 
-// pdf.js, for the PDF reader: the minified ES module build and its worker. No cmaps and no
-// standard font data, because we extract text and never render a page.
-copyFileSync(nm('pdfjs-dist/build/pdf.min.mjs'), at('lib/pdf.mjs'));
-copyFileSync(nm('pdfjs-dist/build/pdf.worker.min.mjs'), at('lib/pdf.worker.mjs'));
+// pdf.js, for the PDF reader: the unminified ES module build and its worker. No cmaps and no
+// standard font data, because we extract text and never render a page. The `.min` builds are
+// three times smaller and were what we shipped until the Web Store read them as obfuscation;
+// readable source costs about a megabyte in an archive that is mostly WASM anyway.
+copyFileSync(nm('pdfjs-dist/build/pdf.mjs'), at('lib/pdf.mjs'));
+copyFileSync(nm('pdfjs-dist/build/pdf.worker.mjs'), at('lib/pdf.worker.mjs'));
 copyFileSync(nm('pdfjs-dist/LICENSE'), at('lib/pdfjs-LICENSE'));
 
 // fflate, to unzip EPUB containers. The browser ES module build; no worker, because our CSP
@@ -60,7 +62,10 @@ copyFileSync(nm('fflate/LICENSE'), at('lib/fflate-LICENSE'));
 await build({
   entryPoints: [at('scripts/kokoro-worker.src.js')],
   outfile: at('src/offscreen/kokoro-worker.js'),
-  bundle: true, format: 'iife', platform: 'browser', target: 'chrome116', minify: true, logLevel: 'warning',
+  // Not minified, deliberately: this is the one file in the package that is our own build
+  // output rather than a published library, and a 2 MB unreadable blob is exactly what the
+  // Code Readability policy is about. esbuild still tree-shakes; only the mangling is off.
+  bundle: true, format: 'iife', platform: 'browser', target: 'chrome116', minify: false, logLevel: 'warning',
   alias: { 'fs/promises': at('scripts/empty.js'), fs: at('scripts/empty.js'), path: at('scripts/empty.js') },
   external: ['onnxruntime-node']
 });
@@ -90,6 +95,7 @@ for (const f of ['lib/pdf.mjs', 'lib/pdf.worker.mjs', 'lib/fflate.js']) {
 }
 
 console.log('✓ vendored files rebuilt');
+console.log('✓ ' + auditReadability(root));
 
 if (process.argv.includes('--zip')) {
   const { version } = JSON.parse(readFileSync(at('manifest.json'), 'utf8'));
