@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { problemsIn, auditZip, PACKAGED } from '../scripts/package-audit.mjs';
+import { problemsIn, auditZip, PACKAGED, minificationProblem, unreadableScripts } from '../scripts/package-audit.mjs';
 
 const EXTENSION = ['manifest.json', 'icons/icon16.png', 'lib/pdf.mjs', 'ort/ort-wasm-simd-threaded.wasm', 'src/background/main.js'];
 
@@ -84,4 +84,42 @@ test('auditZip throws on a real archive carrying node_modules, and says what to 
       return true;
     });
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// Version 3.4.0 was rejected a second time, citing
+// node_modules/pdfjs-dist/legacy/image_decoders/pdf.image_decoders.min.mjs — again a file the
+// package never contained. But the package did still carry the minified pdf.js builds and a
+// 2 MB minified bundle of our own, which is the next thing a reviewer would point at, so the
+// build now vendors the unminified builds and this rule keeps them that way.
+
+test('a minified script is refused, and the message says what to do instead', () => {
+  const minified = 'var a=1,b=2,c=3;' + 'function f(x){return x+1}'.repeat(50);
+  const problem = minificationProblem('lib/pdf.mjs', minified);
+  assert.ok(problem, 'a one-line 1KB file should be refused');
+  assert.match(problem, /characters per line/);
+  assert.match(problem, /unminified build/, 'must say how to fix it');
+});
+
+test('ordinary source passes', () => {
+  const source = ['// Reads a page.', 'export function read(doc) {', '  return doc.body.textContent;', '}'].join('\n');
+  assert.equal(minificationProblem('src/content/reader.js', source), null);
+});
+
+test('only scripts are judged', () => {
+  // A WASM blob or a licence file has no lines to speak of and is not code anyone reads.
+  assert.equal(minificationProblem('ort/ort-wasm-simd-threaded.wasm', 'x'.repeat(5000)), null);
+  assert.equal(minificationProblem('lib/pdfjs-LICENSE', 'x'.repeat(5000)), null);
+});
+
+test("emscripten's WASM glue is allowed, because upstream ships no other form of it", () => {
+  const glue = 'x'.repeat(5000);
+  assert.equal(minificationProblem('ort/ort-wasm-simd-threaded.mjs', glue), null);
+  assert.equal(minificationProblem('ort/ort-wasm-simd-threaded.jsep.mjs', glue), null);
+  // The exemption is for that glue only, not for anything parked in ort/.
+  assert.ok(minificationProblem('ort/something-else.mjs', glue));
+});
+
+test('the package as it stands right now is readable', () => {
+  // The real thing, not a fixture: whatever is in lib/, ort/ and src/ at this moment.
+  assert.deepEqual(unreadableScripts(join(import.meta.dirname, '..')), []);
 });
