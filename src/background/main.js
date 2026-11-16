@@ -7,7 +7,7 @@ import { createHybridEngine } from './hybrid-engine.js';
 import { NEURAL_VOICES, DEFAULT_SETTINGS, favouritePatch } from './voices.js';
 import * as queue from './queue.js';
 
-const EXTRACT_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/reader/extract.js'];
+const EXTRACT_FILES = ['lib/Readability.js', 'src/doc/model.js', 'src/reader/snapshot.js', 'src/reader/extract.js'];
 const READER_FILES = [...EXTRACT_FILES, 'src/doc/tab-mark.js', 'src/doc/session.js',
                       'src/reader/view.js', 'src/reader/reader.js'];
 
